@@ -1,0 +1,29 @@
+# Runtime logs
+logs/
+*.log
+
+# Local cache
+swagger-cache/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+coverage/
+
+# Go build/test artifacts
+*.exe
+*.test
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
