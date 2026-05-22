@@ -38,8 +38,18 @@ tasks:
   test:
     desc: Run backend tests and frontend build checks
     cmds:
-      - cmd: go test ./...
-        dir: apps/api
+      - task: test:api
+      - task: test:web
+
+  test:api:
+    desc: Run backend tests
+    dir: apps/api
+    cmds:
+      - go test ./...
+
+  test:web:
+    desc: Run frontend build checks
+    cmds:
       - pnpm --dir apps/web build
 
   build:

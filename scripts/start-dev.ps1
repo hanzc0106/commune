@@ -3,19 +3,11 @@
 chcp 65001 > $null
 
 $root = Split-Path -Parent $PSScriptRoot
-$apiDir = Join-Path $root "apps\api"
-$webDir = Join-Path $root "apps\web"
 
 Push-Location $root
 try {
-    docker compose --env-file .env.example -f deploy/compose.yml up -d db
-} finally {
-    Pop-Location
-}
-
-Push-Location $apiDir
-try {
-    go run .\cmd\migrate
+    task db
+    task migrate
 } finally {
     Pop-Location
 }
@@ -24,16 +16,16 @@ $apiCommand = @"
 [Console]::InputEncoding = [Text.Encoding]::UTF8
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 chcp 65001 > `$null
-Set-Location "$apiDir"
-go run .\cmd\server
+Set-Location "$root"
+task api
 "@
 
 $webCommand = @"
 [Console]::InputEncoding = [Text.Encoding]::UTF8
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 chcp 65001 > `$null
-Set-Location "$webDir"
-pnpm dev
+Set-Location "$root"
+task web
 "@
 
 Start-Process powershell -ArgumentList @("-NoExit", "-Command", $apiCommand) -WindowStyle Normal
