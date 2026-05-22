@@ -39,3 +39,29 @@ Set-Location apps\web
 pnpm install
 pnpm dev
 ```
+
+## Scripts
+
+Start local database:
+
+```powershell
+.\scripts\db-up.ps1
+```
+
+Show development commands:
+
+```powershell
+.\scripts\dev.ps1
+```
+
+Generate sqlc code:
+
+```powershell
+.\scripts\sqlc.ps1
+```
+
+Build frontend and API:
+
+```powershell
+.\scripts\build.ps1
+```
