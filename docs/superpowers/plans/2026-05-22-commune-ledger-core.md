@@ -69,57 +69,7 @@
 - 修改：`Taskfile.yml`
 - 生成：`apps/api/internal/db/queries/*.sql.go`
 
-- [ ] **Step 1：先写失败测试，验证初始化会创建默认分类**
-
-在 `apps/api/internal/app/service_test.go` 增加测试：
-
-```go
-func TestInitializeCreatesDefaultCategories(t *testing.T) {
-	pool := testutil.OpenTestDB(t)
-	ctx := context.Background()
-	migrations, err := db.LoadMigrations("../../migrations")
-	if err != nil {
-		t.Fatalf("LoadMigrations returned error: %v", err)
-	}
-	if err := db.RunMigrations(ctx, pool, migrations); err != nil {
-		t.Fatalf("RunMigrations returned error: %v", err)
-	}
-	_, _ = pool.Exec(ctx, "TRUNCATE transactions, categories, sessions, members, app_settings RESTART IDENTITY CASCADE")
-
-	service := NewService(pool)
-	if _, _, err := service.Initialize(ctx, InitializeInput{
-		HouseholdName: "Han Home",
-		AdminName:     "Han",
-		PIN:           "123456",
-	}); err != nil {
-		t.Fatalf("Initialize returned error: %v", err)
-	}
-
-	categories, err := service.ListCategories(ctx)
-	if err != nil {
-		t.Fatalf("ListCategories returned error: %v", err)
-	}
-	if len(categories) < 10 {
-		t.Fatalf("category count = %d, want at least 10", len(categories))
-	}
-	if categories[0].Name == "" || categories[0].Type == "" {
-		t.Fatalf("first category is incomplete: %+v", categories[0])
-	}
-}
-```
-
-- [ ] **Step 2：运行测试确认失败**
-
-运行：
-
-```powershell
-Set-Location apps\api
-go test ./internal/app -run TestInitializeCreatesDefaultCategories -count=1
-```
-
-预期：编译失败，提示 `service.ListCategories undefined` 或 `transactions/categories` 表不存在。
-
-- [ ] **Step 3：新增 migration**
+- [ ] **Step 1：新增 migration**
 
 创建 `apps/api/migrations/000003_ledger_core.sql`：
 
@@ -160,7 +110,7 @@ CREATE INDEX IF NOT EXISTS transactions_category_id_idx ON transactions (categor
 CREATE INDEX IF NOT EXISTS transactions_member_id_idx ON transactions (member_id);
 ```
 
-- [ ] **Step 4：新增 sqlc 查询**
+- [ ] **Step 2：新增 sqlc 查询**
 
 `apps/api/queries/categories.sql`：
 
@@ -254,7 +204,7 @@ GROUP BY c.id, c.name, c.icon_key, c.color_key
 ORDER BY expense_cents DESC, c.name;
 ```
 
-- [ ] **Step 5：生成 sqlc 代码**
+- [ ] **Step 3：生成 sqlc 代码**
 
 运行：
 
@@ -264,7 +214,7 @@ ORDER BY expense_cents DESC, c.name;
 
 预期：`apps/api/internal/db/queries` 下生成或更新 `categories.sql.go`、`transactions.sql.go`、`overview.sql.go`。
 
-- [ ] **Step 6：更新重置脚本**
+- [ ] **Step 4：更新重置脚本**
 
 把 `scripts/reset-dev-db.ps1` 和 `Taskfile.yml` 中的 TRUNCATE 表列表改为：
 
@@ -272,12 +222,24 @@ ORDER BY expense_cents DESC, c.name;
 transactions, categories, sessions, members, app_settings
 ```
 
-- [ ] **Step 7：提交**
+- [ ] **Step 5：验证迁移和生成代码**
 
 运行：
 
 ```powershell
-git add apps/api/migrations apps/api/queries apps/api/internal/db/queries scripts/reset-dev-db.ps1 Taskfile.yml apps/api/internal/app/service_test.go
+Set-Location apps\api
+go test ./internal/db -count=1
+go test ./internal/db/queries -count=1
+```
+
+预期：PASS。此任务只提交 schema、SQL 查询和生成代码，不提交依赖未实现 service 方法的测试。
+
+- [ ] **Step 6：提交**
+
+运行：
+
+```powershell
+git add apps/api/migrations apps/api/queries apps/api/internal/db/queries scripts/reset-dev-db.ps1 Taskfile.yml
 git commit -m "feat: add ledger schema and queries"
 ```
 
@@ -290,7 +252,57 @@ git commit -m "feat: add ledger schema and queries"
 - 修改：`apps/api/internal/app/service.go`
 - 修改：`apps/api/internal/app/service_test.go`
 
-- [ ] **Step 1：实现 DTO 和默认分类**
+- [ ] **Step 1：先写失败测试，验证初始化会创建默认分类**
+
+在 `apps/api/internal/app/service_test.go` 增加测试：
+
+```go
+func TestInitializeCreatesDefaultCategories(t *testing.T) {
+	pool := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	migrations, err := db.LoadMigrations("../../migrations")
+	if err != nil {
+		t.Fatalf("LoadMigrations returned error: %v", err)
+	}
+	if err := db.RunMigrations(ctx, pool, migrations); err != nil {
+		t.Fatalf("RunMigrations returned error: %v", err)
+	}
+	_, _ = pool.Exec(ctx, "TRUNCATE transactions, categories, sessions, members, app_settings RESTART IDENTITY CASCADE")
+
+	service := NewService(pool)
+	if _, _, err := service.Initialize(ctx, InitializeInput{
+		HouseholdName: "Han Home",
+		AdminName:     "Han",
+		PIN:           "123456",
+	}); err != nil {
+		t.Fatalf("Initialize returned error: %v", err)
+	}
+
+	categories, err := service.ListCategories(ctx)
+	if err != nil {
+		t.Fatalf("ListCategories returned error: %v", err)
+	}
+	if len(categories) < 10 {
+		t.Fatalf("category count = %d, want at least 10", len(categories))
+	}
+	if categories[0].Name == "" || categories[0].Type == "" {
+		t.Fatalf("first category is incomplete: %+v", categories[0])
+	}
+}
+```
+
+- [ ] **Step 2：运行测试确认失败**
+
+运行：
+
+```powershell
+Set-Location apps\api
+go test ./internal/app -run TestInitializeCreatesDefaultCategories -count=1
+```
+
+预期：编译失败，提示 `service.ListCategories undefined`。
+
+- [ ] **Step 3：实现 DTO 和默认分类**
 
 在 `service.go` 增加：
 
@@ -325,7 +337,7 @@ var defaultCategories = []struct {
 }
 ```
 
-- [ ] **Step 2：实现 `ListCategories` 和初始化种子**
+- [ ] **Step 4：实现 `ListCategories` 和初始化种子**
 
 在 `Initialize` 的事务内，创建 admin member 后、创建 session 前，循环调用 `qtx.CreateCategory` 插入默认分类。
 
@@ -347,7 +359,7 @@ func (s *Service) ListCategories(ctx context.Context) ([]CategoryDTO, error) {
 
 `categoryDTO` 使用 sqlc 生成的 `queries.Category` 转换。
 
-- [ ] **Step 3：运行测试**
+- [ ] **Step 5：运行测试**
 
 运行：
 
@@ -358,7 +370,7 @@ go test ./internal/app -run TestInitializeCreatesDefaultCategories -count=1
 
 预期：PASS。
 
-- [ ] **Step 4：提交**
+- [ ] **Step 6：提交**
 
 ```powershell
 git add apps/api/internal/app/service.go apps/api/internal/app/service_test.go
