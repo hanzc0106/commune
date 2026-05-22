@@ -23,6 +23,16 @@ type MemberDTO struct {
 	Role string `json:"role"`
 }
 
+type CategoryDTO struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Type          string `json:"type"`
+	IconKey       string `json:"iconKey"`
+	ColorKey      string `json:"colorKey"`
+	SortOrder     int32  `json:"sortOrder"`
+	SystemDefault bool   `json:"systemDefault"`
+}
+
 type InitializeInput struct {
 	HouseholdName string `json:"householdName"`
 	AdminName     string `json:"adminName"`
@@ -55,6 +65,25 @@ type LoginInput struct {
 
 type LoginResult struct {
 	Member MemberDTO `json:"member"`
+}
+
+var defaultCategories = []struct {
+	name      string
+	kind      string
+	iconKey   string
+	colorKey  string
+	sortOrder int32
+}{
+	{"餐饮", "expense", "utensils", "emerald", 10},
+	{"日用", "expense", "shopping-bag", "sky", 20},
+	{"交通", "expense", "bus", "amber", 30},
+	{"住房", "expense", "home", "slate", 40},
+	{"医疗", "expense", "heart-pulse", "rose", 50},
+	{"娱乐", "expense", "gamepad-2", "violet", 60},
+	{"孩子", "expense", "baby", "pink", 70},
+	{"其他支出", "expense", "circle", "zinc", 990},
+	{"工资", "income", "wallet", "emerald", 10},
+	{"其他收入", "income", "plus-circle", "teal", 990},
 }
 
 func NewService(pool *pgxpool.Pool) *Service {
@@ -106,6 +135,19 @@ func (s *Service) Initialize(ctx context.Context, input InitializeInput) (Initia
 		return InitializeResult{}, "", err
 	}
 
+	for _, category := range defaultCategories {
+		if _, err := qtx.CreateCategory(ctx, queries.CreateCategoryParams{
+			Name:          category.name,
+			Type:          category.kind,
+			IconKey:       category.iconKey,
+			ColorKey:      category.colorKey,
+			SortOrder:     category.sortOrder,
+			SystemDefault: true,
+		}); err != nil {
+			return InitializeResult{}, "", err
+		}
+	}
+
 	token, err := auth.NewSessionToken()
 	if err != nil {
 		return InitializeResult{}, "", err
@@ -126,6 +168,18 @@ func (s *Service) Initialize(ctx context.Context, input InitializeInput) (Initia
 	}
 
 	return InitializeResult{Member: memberDTO(member.ID, member.Name, member.Role)}, token, nil
+}
+
+func (s *Service) ListCategories(ctx context.Context) ([]CategoryDTO, error) {
+	rows, err := s.queries.ListActiveCategories(ctx)
+	if err != nil {
+		return nil, err
+	}
+	categories := make([]CategoryDTO, 0, len(rows))
+	for _, row := range rows {
+		categories = append(categories, categoryDTO(row))
+	}
+	return categories, nil
 }
 
 func (s *Service) Bootstrap(ctx context.Context, rawToken string) (BootstrapResult, error) {
@@ -225,6 +279,18 @@ func memberDTO(id pgtype.UUID, name string, role string) MemberDTO {
 		ID:   id.String(),
 		Name: name,
 		Role: role,
+	}
+}
+
+func categoryDTO(category queries.Category) CategoryDTO {
+	return CategoryDTO{
+		ID:            category.ID.String(),
+		Name:          category.Name,
+		Type:          category.Type,
+		IconKey:       category.IconKey,
+		ColorKey:      category.ColorKey,
+		SortOrder:     category.SortOrder,
+		SystemDefault: category.SystemDefault,
 	}
 }
 
