@@ -1,96 +1,96 @@
-﻿# Commune Ledger Core Design
+# Commune 账本核心设计
 
-Date: 2026-05-22
+日期：2026-05-22
 
-## Background
+## 背景
 
-Commune is a self-hosted family bookkeeping application for one household, one deployment, and a small server. Auth and dev tooling are already in place. The next step is to make daily bookkeeping actually useful by adding the core ledger data model.
+Commune 是一个面向单个家庭、单个部署实例和小型服务器的自托管家庭账本应用。当前项目已经完成认证基础和开发工程化。下一步需要让应用具备真正可用的日常记账能力，因此本阶段聚焦账本核心数据模型。
 
-This phase intentionally excludes account tracking. A transaction records what happened, who recorded it, when it happened, and which category it belongs to.
+本阶段明确不引入“账户”概念。也就是说，不记录微信、支付宝、银行卡、现金等资金账户。每笔交易只记录发生了什么、由谁记录、何时发生、归属哪个分类。
 
-## Goal
+## 目标
 
-Build the first usable ledger core: categories, transactions, and monthly overview data that power the Add and Transactions flows.
+构建第一版可用的账本核心能力：分类、交易流水和月度概览数据，为 Add 页面和 Transactions 页面提供真实业务数据。
 
-## Scope
+## 范围
 
-This phase includes:
+本阶段包含：
 
-- Category storage and listing.
-- Transaction creation, update, deletion, and filtering.
-- Monthly income, expense, and balance summary.
-- Category totals for the current month.
-- Household-wide visibility with role-based edit permissions.
-- Frontend wiring for Add and Transactions screens.
+- 分类的存储和列表查询。
+- 交易流水的创建、更新、删除和过滤。
+- 月度收入、支出和结余汇总。
+- 当前月份的分类支出统计。
+- 家庭共享可见性，以及基于角色的编辑权限。
+- 前端 Add 页面和 Transactions 页面的 API 接入。
 
-This phase does not include:
+本阶段不包含：
 
-- Accounts such as WeChat, Alipay, banks, or cash boxes.
-- Budget editing UI.
-- Advanced reporting.
-- Transfer transactions.
-- Recurring transactions.
-- Receipt attachments.
-- Import/export.
+- 微信、支付宝、银行卡、现金等账户管理。
+- 预算编辑 UI。
+- 高级报表。
+- 转账交易。
+- 周期性交易。
+- 小票或附件。
+- 导入导出。
 
-## Product Rules
+## 产品规则
 
-- All amounts are stored as integer cents.
-- Transactions belong to one category and one member.
-- Transactions are household-visible by default.
-- Admins can edit or delete any transaction.
-- Members can only edit or delete transactions they created.
-- Disabled categories remain visible on historical transactions.
-- Disabled members remain visible on historical transactions.
+- 所有金额都使用整数分存储。
+- 每笔交易属于一个分类和一个成员。
+- 交易默认对整个家庭可见。
+- Admin 可以编辑或删除任意交易。
+- Member 只能编辑或删除自己创建的交易。
+- 已停用分类仍然保留在历史交易中并可展示。
+- 已停用成员仍然保留在历史交易中并可展示。
 
-## Data Model
+## 数据模型
 
 ### Category
 
-Fields:
+字段：
 
-- ID
-- Name
-- Type: `expense` or `income`
-- Icon key
-- Color key
-- Sort order
-- Active flag
-- System default flag
-- Created and updated timestamps
+- `id`
+- `name`
+- `type`：`expense` 或 `income`
+- `icon_key`
+- `color_key`
+- `sort_order`
+- `active`
+- `system_default`
+- `created_at` 和 `updated_at`
 
-System default categories are inserted during initialization and can be disabled, renamed, or reordered later.
+系统默认分类在应用初始化时插入。后续管理员可以停用、重命名或调整排序，但本阶段先实现默认分类和列表能力。
 
 ### Transaction
 
-Fields:
+字段：
 
-- ID
-- Type: `expense` or `income`
-- Amount in cents
-- Category ID
-- Member ID
-- Transaction date
-- Note
-- Created and updated timestamps
+- `id`
+- `type`：`expense` 或 `income`
+- `amount_cents`
+- `category_id`
+- `member_id`
+- `transaction_date`
+- `note`
+- `created_at` 和 `updated_at`
 
-Transactions are month-filtered on the server by `YYYY-MM`.
+交易列表按服务端解析的 `YYYY-MM` 月份过滤。
 
 ### Monthly Overview
 
-Computed data returned by the API:
+月度概览是由交易流水实时计算出的 API 返回数据，不单独建表存储。
 
-- Total income
-- Total expense
-- Net balance
-- Per-category expense totals
-- Recent transactions
+返回内容：
 
-This is derived from transaction rows and is not stored as a separate table.
+- 本月总收入。
+- 本月总支出。
+- 本月结余。
+- 按分类聚合的支出金额。
+- 最近交易。
 
-## API Shape
+## API 形态
 
-New endpoints:
+新增接口：
 
 - `GET /api/categories`
 - `GET /api/transactions?month=YYYY-MM`
@@ -99,81 +99,81 @@ New endpoints:
 - `DELETE /api/transactions/{id}`
 - `GET /api/overview/monthly?month=YYYY-MM`
 
-The server performs permission checks and returns concise JSON errors.
+权限校验由服务端完成。错误响应保持简洁的 JSON 格式。
 
-## UI Behavior
+## UI 行为
 
-### Add Screen
+### Add 页面
 
-The Add screen is the fastest path to record a transaction.
+Add 页面是最快的记账入口。
 
-Primary fields:
+主要字段：
 
-- Amount
-- Type toggle
-- Category selector
-- Date
-- Note
+- 金额。
+- 收入 / 支出切换。
+- 分类选择。
+- 日期。
+- 备注。
 
-After submit, the form resets amount and note, keeps the last category if it is still valid, and refreshes monthly overview data.
+提交成功后，清空金额和备注。如果上一次选择的分类仍然可用，则保留该分类，并刷新月度概览。
 
-### Transactions Screen
+### Transactions 页面
 
-The Transactions screen shows the current month by default.
+Transactions 页面默认展示当前月份的流水。
 
-It supports:
+支持过滤：
 
-- Month filter
-- Type filter
-- Category filter
-- Member filter
+- 月份。
+- 类型。
+- 分类。
+- 成员。
 
-Each row shows amount, category, member, date, and note.
+每行展示金额、分类、成员、日期和备注。
 
 ### Monthly Overview
 
-The overview shows:
+月度概览展示：
 
-- This month income
-- This month expense
-- Balance
-- Top expense categories
+- 本月收入。
+- 本月支出。
+- 本月结余。
+- 支出分类排行。
 
-## Backend Structure
+## 后端结构
 
-The existing `apps/api` layout is extended with focused modules:
+在现有 `apps/api` 结构上扩展聚焦模块：
 
-- `internal/categories` for category listing and maintenance helpers.
-- `internal/transactions` for transaction CRUD, authorization, and monthly filtering.
-- `internal/overview` or a small extension of the app service for monthly summary queries.
-- `internal/db/queries` for sqlc-generated queries.
+- `internal/categories`：分类列表和默认分类维护辅助逻辑。
+- `internal/transactions`：交易 CRUD、权限判断和月度过滤。
+- `internal/overview` 或在现有 app service 中小范围扩展：月度汇总查询。
+- `internal/db/queries`：由 sqlc 生成的查询代码。
 
-The implementation should keep SQL explicit and keep authorization checks close to the service layer.
+实现时保持 SQL 显式、可审查；权限检查放在 service 层附近，避免只依赖前端控制。
 
-## Testing
+## 测试范围
 
-Required coverage:
+后端必须覆盖：
 
-- Default categories are created during initialization.
-- Category listing returns active categories.
-- Transaction create stores cents, category, member, and date correctly.
-- Transaction edit and delete respect ownership rules.
-- Admins can edit and delete any transaction.
-- Monthly overview totals match inserted transactions.
-- Filtered transaction listing respects the selected month.
+- 初始化应用时创建默认分类。
+- 分类列表只返回可用分类。
+- 创建交易时正确存储金额分、分类、成员和日期。
+- 编辑和删除交易时遵守所有权规则。
+- Admin 可以编辑和删除任意交易。
+- 月度概览汇总与插入的交易一致。
+- 交易列表按指定月份过滤。
 
-Frontend coverage can stay narrow:
+前端测试可以保持较窄：
 
-- Add form submit path.
-- Transactions list rendering.
-- Overview summary rendering.
+- Add 表单提交路径。
+- Transactions 列表渲染。
+- 月度概览渲染。
 
-## Build Order
+## 构建顺序
 
-1. Database schema and sqlc queries.
-2. Backend category and transaction services.
-3. Monthly overview query and API.
-4. Frontend API wiring.
-5. Add screen transaction entry.
-6. Transactions list and monthly summary.
-7. Verification and cleanup.
+1. 数据库 schema 和 sqlc 查询。
+2. 后端分类和交易 service。
+3. 月度概览查询和 API。
+4. 前端 API 接入。
+5. Add 页面交易录入。
+6. Transactions 列表和月度概览。
+7. 验证和清理。
