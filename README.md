@@ -19,6 +19,14 @@ Copy the example environment file:
 Copy-Item .env.example .env
 ```
 
+Start everything for local development:
+
+```powershell
+.\scripts\start-dev.ps1
+```
+
+This starts PostgreSQL, runs migrations, opens an API PowerShell window, opens a Web PowerShell window, and opens `http://localhost:5173`.
+
 Start PostgreSQL:
 
 ```powershell
@@ -54,6 +62,18 @@ Show development commands:
 
 ```powershell
 .\scripts\dev.ps1
+```
+
+Start API and Web dev servers in separate PowerShell windows:
+
+```powershell
+.\scripts\start-dev.ps1
+```
+
+Reset development auth data:
+
+```powershell
+.\scripts\reset-dev-db.ps1
 ```
 
 Generate sqlc code:
