@@ -9,8 +9,8 @@ func TestLoadUsesDefaults(t *testing.T) {
 
 	cfg := Load()
 
-	if cfg.HTTPAddr != ":8080" {
-		t.Fatalf("HTTPAddr = %q, want :8080", cfg.HTTPAddr)
+	if cfg.HTTPAddr != ":8090" {
+		t.Fatalf("HTTPAddr = %q, want :8090", cfg.HTTPAddr)
 	}
 	if cfg.DatabaseURL != "postgres://commune:commune@localhost:5432/commune?sslmode=disable" {
 		t.Fatalf("DatabaseURL = %q", cfg.DatabaseURL)

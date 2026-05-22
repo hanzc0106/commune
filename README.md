@@ -32,6 +32,8 @@ Set-Location apps\api
 go run .\cmd\server
 ```
 
+The API listens on `http://localhost:8090` by default.
+
 Run the web app:
 
 ```powershell

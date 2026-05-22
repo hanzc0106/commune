@@ -10,7 +10,7 @@ type Config struct {
 
 func Load() Config {
 	return Config{
-		HTTPAddr:    getEnv("COMMUNE_HTTP_ADDR", ":8080"),
+		HTTPAddr:    getEnv("COMMUNE_HTTP_ADDR", ":8090"),
 		DatabaseURL: getEnv("COMMUNE_DATABASE_URL", "postgres://commune:commune@localhost:5432/commune?sslmode=disable"),
 		StaticDir:   getEnv("COMMUNE_STATIC_DIR", "../web/dist"),
 	}
