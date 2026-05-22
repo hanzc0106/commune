@@ -3,14 +3,21 @@
 chcp 65001 > $null
 
 $root = Split-Path -Parent $PSScriptRoot
-Set-Location $root
+Push-Location $root
+try {
+    pnpm --dir apps/web build
 
-pnpm --dir apps/web build
+    New-Item -ItemType Directory -Force -Path "$root\dist" | Out-Null
 
-New-Item -ItemType Directory -Force -Path "$root\dist" | Out-Null
+    Push-Location "$root\apps\api"
+    try {
+        go test ./...
+        go build -o "$root\dist\commune-server.exe" .\cmd\server
+    } finally {
+        Pop-Location
+    }
 
-Set-Location "$root\apps\api"
-go test ./...
-go build -o "$root\dist\commune-server.exe" .\cmd\server
-
-Write-Host "Build complete: dist\commune-server.exe"
+    Write-Host "Build complete: dist\commune-server.exe"
+} finally {
+    Pop-Location
+}
