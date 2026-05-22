@@ -14,9 +14,8 @@ tasks:
 
   api:
     desc: Run API with hot reload
-    dir: apps/api
     cmds:
-      - air
+      - air -c .air.toml
 
   api:run:
     desc: Run API without hot reload
