@@ -10,7 +10,9 @@ import (
 
 func main() {
 	cfg := config.Load()
-	handler := apphttp.NewHandler()
+	handler := apphttp.NewHandler(apphttp.Options{
+		StaticDir: cfg.StaticDir,
+	})
 
 	log.Printf("commune api listening on %s", cfg.HTTPAddr)
 	if err := stdhttp.ListenAndServe(cfg.HTTPAddr, handler); err != nil {
