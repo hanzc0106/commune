@@ -1,5 +1,15 @@
 import * as Tabs from "@radix-ui/react-tabs";
-import type { ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+
+import {
+  getBootstrap,
+  initializeApp,
+  listLoginMembers,
+  login,
+  logout,
+  type Member
+} from "./api";
+import { bootstrapToState, type AppState } from "./auth";
 
 type AppProps = {
   icon: ReactNode;
@@ -13,6 +23,254 @@ const navItems = [
 ];
 
 export function App({ icon }: AppProps) {
+  const [state, setState] = useState<AppState>({ status: "loading" });
+
+  useEffect(() => {
+    let cancelled = false;
+    getBootstrap()
+      .then((bootstrap) => {
+        if (!cancelled) {
+          setState(bootstrapToState(bootstrap));
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setState({
+            status: "error",
+            message: error instanceof Error ? error.message : "加载失败"
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (state.status === "loading") {
+    return <LoadingScreen />;
+  }
+  if (state.status === "error") {
+    return <CenteredMessage title="无法加载 Commune" body={state.message} />;
+  }
+  if (state.status === "needs-init") {
+    return (
+      <InitScreen
+        icon={icon}
+        onInitialized={(member, householdName) => {
+          setState({ status: "authenticated", householdName, member });
+        }}
+      />
+    );
+  }
+  if (state.status === "needs-login") {
+    return (
+      <LoginScreen
+        householdName={state.householdName}
+        onLogin={(member) => {
+          setState({ status: "authenticated", householdName: state.householdName, member });
+        }}
+      />
+    );
+  }
+  return (
+    <AuthenticatedShell
+      icon={icon}
+      member={state.member}
+      householdName={state.householdName}
+      onLogout={async () => {
+        await logout();
+        setState({ status: "needs-login", householdName: state.householdName });
+      }}
+    />
+  );
+}
+
+function LoadingScreen() {
+  return <CenteredMessage title="Commune" body="正在加载家庭账本..." />;
+}
+
+function CenteredMessage({ title, body }: { title: string; body: string }) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-stone-50 px-4 text-slate-950">
+      <section className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <h1 className="text-xl font-semibold">{title}</h1>
+        <p className="mt-2 text-sm leading-6 text-slate-600">{body}</p>
+      </section>
+    </main>
+  );
+}
+
+function InitScreen({
+  icon,
+  onInitialized
+}: {
+  icon: ReactNode;
+  onInitialized: (member: Member, householdName: string) => void;
+}) {
+  const [householdName, setHouseholdName] = useState("");
+  const [adminName, setAdminName] = useState("");
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setSubmitting(true);
+    try {
+      const result = await initializeApp({ householdName, adminName, pin });
+      onInitialized(result.member, householdName.trim());
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "初始化失败");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-stone-50 px-4 text-slate-950">
+      <form onSubmit={handleSubmit} className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <BrandHeader icon={icon} compact />
+        <div className="mt-6">
+          <h1 className="text-2xl font-semibold">初始化家庭账本</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-600">创建家庭名称和第一个管理员账号。</p>
+        </div>
+        <FormField label="家庭名称" value={householdName} onChange={setHouseholdName} autoComplete="organization" />
+        <FormField label="管理员姓名" value={adminName} onChange={setAdminName} autoComplete="name" />
+        <FormField label="管理员 PIN" value={pin} onChange={setPin} type="password" autoComplete="new-password" />
+        {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
+        <button
+          type="submit"
+          disabled={submitting}
+          className="mt-5 w-full rounded-md bg-emerald-700 px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {submitting ? "正在初始化" : "创建账本"}
+        </button>
+      </form>
+    </main>
+  );
+}
+
+function LoginScreen({ householdName, onLogin }: { householdName: string; onLogin: (member: Member) => void }) {
+  const [members, setMembers] = useState<Array<{ id: string; name: string }>>([]);
+  const [memberId, setMemberId] = useState("");
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    listLoginMembers()
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        setMembers(result.members);
+        setMemberId(result.members[0]?.id ?? "");
+      })
+      .catch((loadError: unknown) => {
+        if (!cancelled) {
+          setError(loadError instanceof Error ? loadError.message : "加载成员失败");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setSubmitting(true);
+    try {
+      const result = await login({ memberId, pin });
+      onLogin(result.member);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "登录失败");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-stone-50 px-4 text-slate-950">
+      <form onSubmit={handleSubmit} className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <p className="text-sm font-medium text-emerald-700">{householdName}</p>
+        <h1 className="mt-2 text-2xl font-semibold">登录家庭账本</h1>
+        <label className="mt-5 block">
+          <span className="text-sm font-medium text-slate-700">成员</span>
+          <select
+            value={memberId}
+            onChange={(event) => setMemberId(event.target.value)}
+            disabled={loading}
+            className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-3 text-base outline-none focus:border-emerald-700"
+          >
+            {members.map((member) => (
+              <option key={member.id} value={member.id}>
+                {member.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <FormField label="PIN" value={pin} onChange={setPin} type="password" autoComplete="current-password" />
+        {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
+        <button
+          type="submit"
+          disabled={submitting || loading || !memberId}
+          className="mt-5 w-full rounded-md bg-emerald-700 px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {submitting ? "正在登录" : "登录"}
+        </button>
+      </form>
+    </main>
+  );
+}
+
+function FormField({
+  label,
+  value,
+  onChange,
+  type = "text",
+  autoComplete
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  autoComplete?: string;
+}) {
+  return (
+    <label className="mt-4 block">
+      <span className="text-sm font-medium text-slate-700">{label}</span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        type={type}
+        autoComplete={autoComplete}
+        className="mt-2 w-full rounded-md border border-slate-300 px-3 py-3 text-base outline-none focus:border-emerald-700"
+      />
+    </label>
+  );
+}
+
+function AuthenticatedShell({
+  icon,
+  member,
+  householdName,
+  onLogout
+}: {
+  icon: ReactNode;
+  member: Member;
+  householdName: string;
+  onLogout: () => void;
+}) {
   return (
     <Tabs.Root defaultValue="add" asChild>
       <main className="min-h-screen bg-stone-50 text-slate-950 md:grid md:grid-cols-[15rem_minmax(0,1fr)]">
@@ -29,6 +287,13 @@ export function App({ icon }: AppProps) {
               </Tabs.Trigger>
             ))}
           </Tabs.List>
+          <div className="mt-auto border-t border-slate-200 p-4">
+            <p className="text-sm font-medium">{member.name}</p>
+            <p className="text-xs text-slate-500">{member.role === "admin" ? "管理员" : "成员"}</p>
+            <button onClick={onLogout} className="mt-3 text-sm font-medium text-slate-600 hover:text-slate-950">
+              退出登录
+            </button>
+          </div>
         </aside>
 
         <section className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 pb-24 pt-5 md:px-8 md:pb-8 lg:px-10">
@@ -38,12 +303,15 @@ export function App({ icon }: AppProps) {
 
           <div className="hidden items-start justify-between gap-6 md:flex">
             <div>
-              <p className="text-sm font-medium text-emerald-700">Commune</p>
+              <p className="text-sm font-medium text-emerald-700">{householdName}</p>
               <h1 className="mt-1 text-2xl font-semibold">家庭共享账本</h1>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
-              当前阶段：基础框架
-            </div>
+            <button
+              onClick={onLogout}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm hover:text-slate-950"
+            >
+              {member.name} · 退出
+            </button>
           </div>
 
           <div className="mt-6 flex-1 md:mt-8">
@@ -52,12 +320,12 @@ export function App({ icon }: AppProps) {
                 <Panel
                   eyebrow="下一步"
                   title="建立记账基础流程"
-                  body="当前版本只验证前端壳、样式系统和构建链路。后续这里会成为快速记账表单。"
+                  body="认证基础已经就绪。后续这里会成为快速记账表单。"
                 />
                 <Panel
-                  eyebrow="本月概览"
-                  title="预算和最近流水"
-                  body="PC 端会把辅助信息放在右侧，移动端则在主内容下方顺序展示。"
+                  eyebrow="当前成员"
+                  title={member.name}
+                  body={member.role === "admin" ? "你现在以管理员身份登录。" : "你现在以家庭成员身份登录。"}
                 />
               </div>
             </Tabs.Content>
