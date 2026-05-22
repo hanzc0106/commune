@@ -18,10 +18,16 @@ node_modules/
 dist/
 build/
 coverage/
+*.tsbuildinfo
 
 # Go build/test artifacts
 *.exe
 *.test
+
+# Local database files
+*.db
+*.sqlite
+*.sqlite3
 
 # OS/editor files
 .DS_Store
