@@ -3,6 +3,9 @@
 chcp 65001 > $null
 
 $root = Split-Path -Parent $PSScriptRoot
-Set-Location "$root\apps\api"
-
-sqlc generate
+Push-Location "$root\apps\api"
+try {
+    sqlc generate
+} finally {
+    Pop-Location
+}

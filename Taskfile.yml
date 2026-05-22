@@ -1,0 +1,63 @@
+version: "3"
+
+tasks:
+  db:
+    desc: Start local PostgreSQL
+    cmds:
+      - docker compose --env-file .env.example -f deploy/compose.yml up -d db
+
+  migrate:
+    desc: Run database migrations
+    dir: apps/api
+    cmds:
+      - go run ./cmd/migrate
+
+  api:
+    desc: Run API with hot reload
+    cmds:
+      - air -c .air.toml
+
+  api:run:
+    desc: Run API without hot reload
+    dir: apps/api
+    cmds:
+      - go run ./cmd/server
+
+  web:
+    desc: Run Vite dev server
+    dir: apps/web
+    cmds:
+      - pnpm dev
+
+  dev:
+    desc: Start database and run migrations, then print dev server commands
+    deps: [db, migrate]
+    cmds:
+      - task --list
+
+  test:
+    desc: Run backend tests and frontend build checks
+    cmds:
+      - task: test:api
+      - task: test:web
+
+  test:api:
+    desc: Run backend tests
+    dir: apps/api
+    cmds:
+      - go test ./...
+
+  test:web:
+    desc: Run frontend build checks
+    cmds:
+      - pnpm --dir apps/web build
+
+  build:
+    desc: Build frontend and API binary
+    cmds:
+      - powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1
+
+  reset-db:
+    desc: Reset local auth development data
+    cmds:
+      - docker exec commune-db psql -U commune -d commune -c "TRUNCATE sessions, members, app_settings RESTART IDENTITY CASCADE;"

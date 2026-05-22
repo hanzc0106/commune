@@ -10,7 +10,8 @@ import (
 )
 
 type Options struct {
-	StaticDir string
+	StaticDir  string
+	APIHandler stdhttp.Handler
 }
 
 func NewHandler(options Options) stdhttp.Handler {
@@ -21,6 +22,10 @@ func NewHandler(options Options) stdhttp.Handler {
 		w.WriteHeader(stdhttp.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
 	})
+
+	if options.APIHandler != nil {
+		r.Mount("/api", options.APIHandler)
+	}
 
 	if options.StaticDir != "" {
 		fileServer := stdhttp.FileServer(stdhttp.Dir(options.StaticDir))

@@ -8,7 +8,34 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AppSetting struct {
+	ID              bool
+	HouseholdName   string
+	DefaultCurrency string
+	InitializedAt   pgtype.Timestamptz
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+type Member struct {
+	ID        pgtype.UUID
+	Name      string
+	PinHash   string
+	Role      string
+	Active    bool
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
 type SchemaMigration struct {
 	Version   int64
 	AppliedAt pgtype.Timestamptz
+}
+
+type Session struct {
+	ID        pgtype.UUID
+	MemberID  pgtype.UUID
+	TokenHash string
+	ExpiresAt pgtype.Timestamptz
+	CreatedAt pgtype.Timestamptz
 }

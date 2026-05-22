@@ -19,41 +19,82 @@ Copy the example environment file:
 Copy-Item .env.example .env
 ```
 
-Start PostgreSQL:
+Install the local developer tools once if they are missing:
 
 ```powershell
-.\scripts\db-up.ps1
+scoop install task air
 ```
 
-Run the API:
+Start the database and run migrations:
 
 ```powershell
-Set-Location apps\api
-go run .\cmd\server
+task dev
 ```
 
-The API listens on `http://localhost:8090` by default.
+Run the API with Go hot reload:
+
+```powershell
+task api
+```
 
 Run the web app:
 
 ```powershell
-Set-Location apps\web
-pnpm install
-pnpm dev
+task web
 ```
 
+For the Windows one-click workflow:
+
+```powershell
+.\scripts\start-dev.ps1
+```
+
+This starts PostgreSQL, runs migrations, opens an API PowerShell window running `task api`, opens a Web PowerShell window running `task web`, and opens `http://localhost:5173`.
+
+Start PostgreSQL:
+
+```powershell
+task db
+```
+
+Run the API without hot reload:
+
+```powershell
+task api:run
+```
+
+The API listens on `http://localhost:8090` by default.
+
 ## Scripts
+
+Show all canonical development commands:
+
+```powershell
+task --list
+```
 
 Start local database:
 
 ```powershell
-.\scripts\db-up.ps1
+task db
 ```
 
 Show development commands:
 
 ```powershell
 .\scripts\dev.ps1
+```
+
+Start API and Web dev servers in separate PowerShell windows:
+
+```powershell
+.\scripts\start-dev.ps1
+```
+
+Reset development auth data:
+
+```powershell
+task reset-db
 ```
 
 Generate sqlc code:
@@ -65,5 +106,5 @@ Generate sqlc code:
 Build frontend and API:
 
 ```powershell
-.\scripts\build.ps1
+task build
 ```

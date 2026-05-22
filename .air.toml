@@ -1,0 +1,17 @@
+root = "."
+tmp_dir = "tmp/air"
+
+[build]
+cmd = "powershell -NoProfile -Command \"Set-Location apps/api; go build -o ../../tmp/air/commune-api.exe ./cmd/server\""
+bin = "tmp/air/commune-api.exe"
+include_ext = ["go", "sql"]
+include_dir = ["apps/api"]
+exclude_dir = ["tmp", "vendor", "apps/api/internal/db/queries"]
+delay = 1000
+stop_on_error = true
+
+[log]
+time = true
+
+[screen]
+clear_on_rebuild = false

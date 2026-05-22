@@ -31,3 +31,15 @@ func TestMissingStaticFallbackReturnsNotFound(t *testing.T) {
 		t.Fatalf("status = %d, want 404", rec.Code)
 	}
 }
+
+func TestAPIPathWithoutAPIHandlerReturnsNotFound(t *testing.T) {
+	handler := NewHandler(Options{})
+	req := httptest.NewRequest("GET", "/api/bootstrap", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != 404 {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
