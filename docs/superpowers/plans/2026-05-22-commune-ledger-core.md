@@ -402,7 +402,20 @@ go test ./internal/app -run TestTransactionPermissions -count=1
 
 预期：编译失败，提示交易方法未定义。
 
-- [ ] **Step 2：增加输入和 DTO**
+- [ ] **Step 2：写失败测试：交易类型必须匹配分类类型**
+
+在 `service_test.go` 增加测试，断言使用收入分类创建支出交易会返回错误，使用支出分类创建收入交易也会返回错误。
+
+运行：
+
+```powershell
+Set-Location apps\api
+go test ./internal/app -run TestCreateTransactionRejectsCategoryTypeMismatch -count=1
+```
+
+预期：编译失败，提示交易方法未定义。实现后此测试必须 PASS。
+
+- [ ] **Step 3：增加输入和 DTO**
 
 在 `service.go` 增加：
 
@@ -445,7 +458,7 @@ type MonthlyOverviewDTO struct {
 }
 ```
 
-- [ ] **Step 3：实现 service 方法**
+- [ ] **Step 4：实现 service 方法**
 
 增加方法：
 
@@ -461,11 +474,12 @@ type MonthlyOverviewDTO struct {
 - `amountCents` 必须大于 0。
 - `transactionDate` 使用 `YYYY-MM-DD`。
 - `month` 使用 `YYYY-MM`，空值默认为当前月。
+- 创建和更新交易时，必须查询分类并校验 `transaction.type == category.type`。
 - 更新和删除前调用 `GetTransactionByID`。
 - `actor.Role == "admin"` 可以操作任意交易。
 - 非 admin 只能操作 `member_id == actor.ID` 的交易。
 
-- [ ] **Step 4：运行 app 测试**
+- [ ] **Step 5：运行 app 测试**
 
 ```powershell
 Set-Location apps\api
@@ -474,7 +488,7 @@ go test ./internal/app -count=1
 
 预期：PASS。
 
-- [ ] **Step 5：提交**
+- [ ] **Step 6：提交**
 
 ```powershell
 git add apps/api/internal/app/service.go apps/api/internal/app/service_test.go
