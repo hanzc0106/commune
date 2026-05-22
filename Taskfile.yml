@@ -60,4 +60,4 @@ tasks:
   reset-db:
     desc: Reset local auth development data
     cmds:
-      - docker exec commune-db psql -U commune -d commune -c "TRUNCATE sessions, members, app_settings RESTART IDENTITY CASCADE;"
+      - docker exec commune-db psql -U commune -d commune -c "TRUNCATE transactions, categories, sessions, members, app_settings RESTART IDENTITY CASCADE;"

@@ -17,6 +17,19 @@ type AppSetting struct {
 	UpdatedAt       pgtype.Timestamptz
 }
 
+type Category struct {
+	ID            pgtype.UUID
+	Name          string
+	Type          string
+	IconKey       string
+	ColorKey      string
+	SortOrder     int32
+	Active        bool
+	SystemDefault bool
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+}
+
 type Member struct {
 	ID        pgtype.UUID
 	Name      string
@@ -38,4 +51,16 @@ type Session struct {
 	TokenHash string
 	ExpiresAt pgtype.Timestamptz
 	CreatedAt pgtype.Timestamptz
+}
+
+type Transaction struct {
+	ID              pgtype.UUID
+	Type            string
+	AmountCents     int64
+	CategoryID      pgtype.UUID
+	MemberID        pgtype.UUID
+	TransactionDate pgtype.Date
+	Note            string
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
 }
