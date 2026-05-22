@@ -23,6 +23,11 @@ coverage/
 *.exe
 *.test
 
+# Local database files
+*.db
+*.sqlite
+*.sqlite3
+
 # OS/editor files
 .DS_Store
 Thumbs.db
