@@ -4,6 +4,7 @@ logs/
 
 # Local cache
 swagger-cache/
+.worktrees/
 
 # Environment files
 .env
