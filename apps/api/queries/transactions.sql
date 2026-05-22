@@ -28,7 +28,7 @@ SELECT
 FROM transactions t
 JOIN categories c ON c.id = t.category_id
 JOIN members m ON m.id = t.member_id
-WHERE t.transaction_date >= $1 AND t.transaction_date < $2
+WHERE t.transaction_date >= sqlc.arg(start_date) AND t.transaction_date < sqlc.arg(end_date)
 ORDER BY t.transaction_date DESC, t.created_at DESC;
 
 -- name: UpdateTransaction :one

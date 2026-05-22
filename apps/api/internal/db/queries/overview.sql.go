@@ -20,8 +20,8 @@ WHERE transaction_date >= $1 AND transaction_date < $2
 `
 
 type GetMonthlyTotalsParams struct {
-	TransactionDate   pgtype.Date
-	TransactionDate_2 pgtype.Date
+	StartDate pgtype.Date
+	EndDate   pgtype.Date
 }
 
 type GetMonthlyTotalsRow struct {
@@ -30,7 +30,7 @@ type GetMonthlyTotalsRow struct {
 }
 
 func (q *Queries) GetMonthlyTotals(ctx context.Context, arg GetMonthlyTotalsParams) (GetMonthlyTotalsRow, error) {
-	row := q.db.QueryRow(ctx, getMonthlyTotals, arg.TransactionDate, arg.TransactionDate_2)
+	row := q.db.QueryRow(ctx, getMonthlyTotals, arg.StartDate, arg.EndDate)
 	var i GetMonthlyTotalsRow
 	err := row.Scan(&i.IncomeCents, &i.ExpenseCents)
 	return i, err
@@ -51,8 +51,8 @@ ORDER BY expense_cents DESC, c.name
 `
 
 type ListMonthlyExpenseCategoryTotalsParams struct {
-	TransactionDate   pgtype.Date
-	TransactionDate_2 pgtype.Date
+	StartDate pgtype.Date
+	EndDate   pgtype.Date
 }
 
 type ListMonthlyExpenseCategoryTotalsRow struct {
@@ -64,7 +64,7 @@ type ListMonthlyExpenseCategoryTotalsRow struct {
 }
 
 func (q *Queries) ListMonthlyExpenseCategoryTotals(ctx context.Context, arg ListMonthlyExpenseCategoryTotalsParams) ([]ListMonthlyExpenseCategoryTotalsRow, error) {
-	rows, err := q.db.Query(ctx, listMonthlyExpenseCategoryTotals, arg.TransactionDate, arg.TransactionDate_2)
+	rows, err := q.db.Query(ctx, listMonthlyExpenseCategoryTotals, arg.StartDate, arg.EndDate)
 	if err != nil {
 		return nil, err
 	}

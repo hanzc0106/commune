@@ -108,8 +108,8 @@ ORDER BY t.transaction_date DESC, t.created_at DESC
 `
 
 type ListTransactionsByMonthParams struct {
-	TransactionDate   pgtype.Date
-	TransactionDate_2 pgtype.Date
+	StartDate pgtype.Date
+	EndDate   pgtype.Date
 }
 
 type ListTransactionsByMonthRow struct {
@@ -131,7 +131,7 @@ type ListTransactionsByMonthRow struct {
 }
 
 func (q *Queries) ListTransactionsByMonth(ctx context.Context, arg ListTransactionsByMonthParams) ([]ListTransactionsByMonthRow, error) {
-	rows, err := q.db.Query(ctx, listTransactionsByMonth, arg.TransactionDate, arg.TransactionDate_2)
+	rows, err := q.db.Query(ctx, listTransactionsByMonth, arg.StartDate, arg.EndDate)
 	if err != nil {
 		return nil, err
 	}

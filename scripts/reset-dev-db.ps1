@@ -7,6 +7,12 @@ $root = Split-Path -Parent $PSScriptRoot
 Push-Location $root
 try {
     docker compose --env-file .env.example -f deploy/compose.yml up -d db
+    Push-Location "$root\apps\api"
+    try {
+        go run .\cmd\migrate
+    } finally {
+        Pop-Location
+    }
 } finally {
     Pop-Location
 }
