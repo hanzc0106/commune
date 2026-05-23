@@ -314,6 +314,12 @@ func TestMonthlyOverviewSummarizesTransactions(t *testing.T) {
 	if len(overview.Recent) != 2 {
 		t.Fatalf("recent count = %d, want 2", len(overview.Recent))
 	}
+	if !overview.Recent[0].Category.SystemDefault {
+		t.Fatalf("recent transaction category did not preserve system default flag: %+v", overview.Recent[0].Category)
+	}
+	if overview.Recent[0].Category.SortOrder == 0 {
+		t.Fatalf("recent transaction category sort order = 0, want populated value")
+	}
 }
 
 func newInitializedTestService(t *testing.T, ctx context.Context, pool *pgxpool.Pool) *Service {

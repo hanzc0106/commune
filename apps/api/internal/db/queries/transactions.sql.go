@@ -97,6 +97,8 @@ SELECT
     c.type AS category_type,
     c.icon_key AS category_icon_key,
     c.color_key AS category_color_key,
+    c.sort_order AS category_sort_order,
+    c.system_default AS category_system_default,
     m.id AS member_id,
     m.name AS member_name,
     m.role AS member_role
@@ -113,21 +115,23 @@ type ListTransactionsByMonthParams struct {
 }
 
 type ListTransactionsByMonthRow struct {
-	ID               pgtype.UUID
-	Type             string
-	AmountCents      int64
-	TransactionDate  pgtype.Date
-	Note             string
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
-	CategoryID       pgtype.UUID
-	CategoryName     string
-	CategoryType     string
-	CategoryIconKey  string
-	CategoryColorKey string
-	MemberID         pgtype.UUID
-	MemberName       string
-	MemberRole       string
+	ID                    pgtype.UUID
+	Type                  string
+	AmountCents           int64
+	TransactionDate       pgtype.Date
+	Note                  string
+	CreatedAt             pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
+	CategoryID            pgtype.UUID
+	CategoryName          string
+	CategoryType          string
+	CategoryIconKey       string
+	CategoryColorKey      string
+	CategorySortOrder     int32
+	CategorySystemDefault bool
+	MemberID              pgtype.UUID
+	MemberName            string
+	MemberRole            string
 }
 
 func (q *Queries) ListTransactionsByMonth(ctx context.Context, arg ListTransactionsByMonthParams) ([]ListTransactionsByMonthRow, error) {
@@ -152,6 +156,8 @@ func (q *Queries) ListTransactionsByMonth(ctx context.Context, arg ListTransacti
 			&i.CategoryType,
 			&i.CategoryIconKey,
 			&i.CategoryColorKey,
+			&i.CategorySortOrder,
+			&i.CategorySystemDefault,
 			&i.MemberID,
 			&i.MemberName,
 			&i.MemberRole,

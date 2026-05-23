@@ -22,6 +22,8 @@ SELECT
     c.type AS category_type,
     c.icon_key AS category_icon_key,
     c.color_key AS category_color_key,
+    c.sort_order AS category_sort_order,
+    c.system_default AS category_system_default,
     m.id AS member_id,
     m.name AS member_name,
     m.role AS member_role
