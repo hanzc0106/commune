@@ -74,6 +74,64 @@ func TestCreateTransactionAndMonthlyOverviewAPI(t *testing.T) {
 	}
 }
 
+func TestSettingsAPIRequiresSession(t *testing.T) {
+	handler := newInitializedAPI(t)
+	req := httptest.NewRequest("GET", "/members", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestSettingsAPIAdminCreatesMember(t *testing.T) {
+	handler, cookie := newInitializedAPIWithCookie(t)
+	member := createMemberViaAPI(t, handler, cookie, "Li", "member", "234567")
+
+	if member.Name != "Li" {
+		t.Fatalf("member name = %q, want Li", member.Name)
+	}
+	if member.Role != "member" {
+		t.Fatalf("member role = %q, want member", member.Role)
+	}
+	if !member.Active {
+		t.Fatal("member active = false, want true")
+	}
+}
+
+func TestSettingsAPIMemberCannotUseAdminEndpoints(t *testing.T) {
+	handler, adminCookie := newInitializedAPIWithCookie(t)
+	member := createMemberViaAPI(t, handler, adminCookie, "Li", "member", "234567")
+	memberCookie := loginViaAPI(t, handler, member.ID, "234567")
+	req := httptest.NewRequest("GET", "/members", nil)
+	req.AddCookie(memberCookie)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSettingsAPIChangeOwnPIN(t *testing.T) {
+	handler, cookie := newInitializedAPIWithCookie(t)
+	adminID := currentMemberID(t, handler, cookie)
+	body := []byte(`{"currentPin":"123456","newPin":"654321"}`)
+	req := httptest.NewRequest("POST", "/me/change-pin", bytes.NewReader(body))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body = %s", rec.Code, rec.Body.String())
+	}
+	loginViaAPI(t, handler, adminID, "654321")
+}
+
 func newInitializedAPI(t *testing.T) http.Handler {
 	t.Helper()
 	pool := testutil.OpenTestDB(t)
@@ -152,4 +210,75 @@ func firstCategoryID(t *testing.T, handler http.Handler, cookie *http.Cookie, ca
 	}
 	t.Fatalf("missing %s category", categoryType)
 	return ""
+}
+
+type memberAdminResponse struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Role   string `json:"role"`
+	Active bool   `json:"active"`
+}
+
+func createMemberViaAPI(t *testing.T, handler http.Handler, cookie *http.Cookie, name, role, pin string) memberAdminResponse {
+	t.Helper()
+	body := []byte(`{"name":"` + name + `","role":"` + role + `","pin":"` + pin + `"}`)
+	req := httptest.NewRequest("POST", "/members", bytes.NewReader(body))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create member status = %d, want 201, body = %s", rec.Code, rec.Body.String())
+	}
+	var member memberAdminResponse
+	if err := json.NewDecoder(rec.Body).Decode(&member); err != nil {
+		t.Fatalf("Decode member returned error: %v", err)
+	}
+	return member
+}
+
+func loginViaAPI(t *testing.T, handler http.Handler, memberID, pin string) *http.Cookie {
+	t.Helper()
+	body := []byte(`{"memberId":"` + memberID + `","pin":"` + pin + `"}`)
+	req := httptest.NewRequest("POST", "/login", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login status = %d, want 200, body = %s", rec.Code, rec.Body.String())
+	}
+	for _, cookie := range rec.Result().Cookies() {
+		if cookie.Name == auth.SessionCookieName {
+			return cookie
+		}
+	}
+	t.Fatal("login response missing session cookie")
+	return nil
+}
+
+func currentMemberID(t *testing.T, handler http.Handler, cookie *http.Cookie) string {
+	t.Helper()
+	req := httptest.NewRequest("GET", "/session", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("session status = %d, want 200, body = %s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		Member struct {
+			ID string `json:"id"`
+		} `json:"member"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("Decode session returned error: %v", err)
+	}
+	if response.Member.ID == "" {
+		t.Fatal("session response missing member ID")
+	}
+	return response.Member.ID
 }

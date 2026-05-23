@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	stdhttp "net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -23,7 +24,15 @@ func NewAPI(service *app.Service) stdhttp.Handler {
 	r.Post("/login", api.login)
 	r.Get("/session", api.session)
 	r.Post("/logout", api.logout)
+	r.Get("/members", api.members)
+	r.Post("/members", api.createMember)
+	r.Post("/members/{id}/disable", api.disableMember)
+	r.Post("/members/{id}/reset-pin", api.resetMemberPIN)
+	r.Post("/me/change-pin", api.changeOwnPIN)
 	r.Get("/categories", api.categories)
+	r.Post("/categories", api.createCategory)
+	r.Patch("/categories/{id}", api.updateCategory)
+	r.Post("/categories/{id}/disable", api.disableCategory)
 	r.Get("/transactions", api.transactions)
 	r.Post("/transactions", api.createTransaction)
 	r.Patch("/transactions/{id}", api.updateTransaction)
@@ -107,6 +116,84 @@ func (api *API) logout(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	writeJSON(w, stdhttp.StatusOK, map[string]bool{"ok": true})
 }
 
+func (api *API) members(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	member, ok := api.requireSession(w, r)
+	if !ok {
+		return
+	}
+	members, err := api.service.ListMembers(r.Context(), member)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, stdhttp.StatusOK, map[string]any{"members": members})
+}
+
+func (api *API) createMember(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	member, ok := api.requireSession(w, r)
+	if !ok {
+		return
+	}
+	var input app.CreateMemberInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeJSON(w, stdhttp.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	created, err := api.service.CreateMember(r.Context(), member, input)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, stdhttp.StatusCreated, created)
+}
+
+func (api *API) disableMember(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	member, ok := api.requireSession(w, r)
+	if !ok {
+		return
+	}
+	disabled, err := api.service.DisableMember(r.Context(), member, chi.URLParam(r, "id"))
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, stdhttp.StatusOK, disabled)
+}
+
+func (api *API) resetMemberPIN(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	member, ok := api.requireSession(w, r)
+	if !ok {
+		return
+	}
+	var input app.ResetMemberPINInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeJSON(w, stdhttp.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if err := api.service.ResetMemberPIN(r.Context(), member, chi.URLParam(r, "id"), input); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, stdhttp.StatusOK, map[string]bool{"ok": true})
+}
+
+func (api *API) changeOwnPIN(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	member, ok := api.requireSession(w, r)
+	if !ok {
+		return
+	}
+	var input app.ChangeOwnPINInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeJSON(w, stdhttp.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if err := api.service.ChangeOwnPIN(r.Context(), member, input); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, stdhttp.StatusOK, map[string]bool{"ok": true})
+}
+
 func (api *API) categories(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	if _, ok := api.requireSession(w, r); !ok {
 		return
@@ -117,6 +204,55 @@ func (api *API) categories(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 	writeJSON(w, stdhttp.StatusOK, map[string]any{"categories": categories})
+}
+
+func (api *API) createCategory(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	member, ok := api.requireSession(w, r)
+	if !ok {
+		return
+	}
+	var input app.CreateCategoryInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeJSON(w, stdhttp.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	category, err := api.service.CreateCategory(r.Context(), member, input)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, stdhttp.StatusCreated, category)
+}
+
+func (api *API) updateCategory(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	member, ok := api.requireSession(w, r)
+	if !ok {
+		return
+	}
+	var input app.UpdateCategoryInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeJSON(w, stdhttp.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	category, err := api.service.UpdateCategory(r.Context(), member, chi.URLParam(r, "id"), input)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, stdhttp.StatusOK, category)
+}
+
+func (api *API) disableCategory(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	member, ok := api.requireSession(w, r)
+	if !ok {
+		return
+	}
+	category, err := api.service.DisableCategory(r.Context(), member, chi.URLParam(r, "id"))
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, stdhttp.StatusOK, category)
 }
 
 func (api *API) transactions(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -216,4 +352,12 @@ func writeJSON(w stdhttp.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+func writeServiceError(w stdhttp.ResponseWriter, err error) {
+	status := stdhttp.StatusBadRequest
+	if strings.Contains(err.Error(), "permission") {
+		status = stdhttp.StatusForbidden
+	}
+	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
