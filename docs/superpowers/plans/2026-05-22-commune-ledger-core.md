@@ -249,6 +249,8 @@ git commit -m "feat: add ledger schema and queries"
 
 **文件：**
 
+- 修改：`apps/api/queries/categories.sql`
+- 生成：`apps/api/internal/db/queries/categories.sql.go`
 - 修改：`apps/api/internal/app/service.go`
 - 修改：`apps/api/internal/app/service_test.go`
 
@@ -415,7 +417,26 @@ go test ./internal/app -run TestCreateTransactionRejectsCategoryTypeMismatch -co
 
 预期：编译失败，提示交易方法未定义。实现后此测试必须 PASS。
 
-- [ ] **Step 3：增加输入和 DTO**
+- [ ] **Step 3：增加分类按 ID 查询**
+
+在 `apps/api/queries/categories.sql` 增加：
+
+```sql
+-- name: GetCategoryByID :one
+SELECT *
+FROM categories
+WHERE id = $1;
+```
+
+运行：
+
+```powershell
+.\scripts\sqlc.ps1
+```
+
+预期：`apps/api/internal/db/queries/categories.sql.go` 生成 `GetCategoryByID`。
+
+- [ ] **Step 4：增加输入和 DTO**
 
 在 `service.go` 增加：
 
@@ -458,7 +479,7 @@ type MonthlyOverviewDTO struct {
 }
 ```
 
-- [ ] **Step 4：实现 service 方法**
+- [ ] **Step 5：实现 service 方法**
 
 增加方法：
 
@@ -479,7 +500,7 @@ type MonthlyOverviewDTO struct {
 - `actor.Role == "admin"` 可以操作任意交易。
 - 非 admin 只能操作 `member_id == actor.ID` 的交易。
 
-- [ ] **Step 5：运行 app 测试**
+- [ ] **Step 6：运行 app 测试**
 
 ```powershell
 Set-Location apps\api
@@ -488,10 +509,10 @@ go test ./internal/app -count=1
 
 预期：PASS。
 
-- [ ] **Step 6：提交**
+- [ ] **Step 7：提交**
 
 ```powershell
-git add apps/api/internal/app/service.go apps/api/internal/app/service_test.go
+git add apps/api/queries/categories.sql apps/api/internal/db/queries/categories.sql.go apps/api/internal/app/service.go apps/api/internal/app/service_test.go
 git commit -m "feat: add ledger transaction service"
 ```
 
