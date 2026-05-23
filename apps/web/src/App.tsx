@@ -2,16 +2,27 @@ import * as Tabs from "@radix-ui/react-tabs";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 
 import {
+  changeOwnPIN,
+  createCategory,
+  createMember,
   createTransaction,
+  disableCategory,
+  disableMember,
   getBootstrap,
   getMonthlyOverview,
   initializeApp,
   listCategories,
   listLoginMembers,
+  listMembers,
   listTransactions,
   login,
   logout,
+  resetMemberPIN,
+  updateCategory,
   type Category,
+  type CreateCategoryInput,
+  type CreateMemberInput,
+  type MemberAdmin,
   type MonthlyOverview,
   type Transaction,
   type Member
@@ -408,7 +419,11 @@ function AuthenticatedShell({
             </Tabs.Content>
 
             <Tabs.Content value="settings">
-              <Panel eyebrow="设置" title="维护家庭成员和分类" body="管理员设置会在 PC 端使用更宽的表单布局，移动端保持单列。" />
+              <SettingsPanel
+                member={member}
+                categories={categories}
+                onCategoriesChanged={() => refreshLedger(month)}
+              />
             </Tabs.Content>
           </div>
 
@@ -670,6 +685,427 @@ function TransactionsPanel({
         ))}
       </div>
     </div>
+  );
+}
+
+function SettingsPanel({
+  member,
+  categories,
+  onCategoriesChanged
+}: {
+  member: Member;
+  categories: Category[];
+  onCategoriesChanged: () => Promise<void>;
+}) {
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="space-y-4">
+        <ChangePINPanel />
+        {member.role === "admin" ? (
+          <>
+            <MembersPanel currentMemberId={member.id} />
+            <CategoriesPanel categories={categories} onChanged={onCategoriesChanged} />
+          </>
+        ) : (
+          <Panel eyebrow="设置" title="个人设置" body="当前账号是普通成员，可以修改自己的 PIN。成员和分类由管理员维护。" />
+        )}
+      </div>
+      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+        <p className="text-sm font-medium text-slate-600">当前成员</p>
+        <p className="mt-2 text-2xl font-semibold">{member.name}</p>
+        <p className="mt-2 text-sm text-slate-500">{member.role === "admin" ? "管理员" : "普通成员"}</p>
+      </div>
+    </div>
+  );
+}
+
+function ChangePINPanel() {
+  const [currentPin, setCurrentPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    setSubmitting(true);
+    try {
+      await changeOwnPIN({ currentPin, newPin });
+      setCurrentPin("");
+      setNewPin("");
+      setMessage("PIN 已更新");
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "修改 PIN 失败");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+      <p className="text-sm font-medium text-slate-600">安全</p>
+      <h2 className="mt-1 text-2xl font-semibold">修改 PIN</h2>
+      <div className="grid gap-x-3 md:grid-cols-2">
+        <FormField label="当前 PIN" value={currentPin} onChange={setCurrentPin} type="password" autoComplete="current-password" />
+        <FormField label="新 PIN" value={newPin} onChange={setNewPin} type="password" autoComplete="new-password" />
+      </div>
+      {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
+      {message ? <p className="mt-4 text-sm text-emerald-700">{message}</p> : null}
+      <button
+        type="submit"
+        disabled={submitting}
+        className="mt-5 rounded-md bg-emerald-700 px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {submitting ? "正在保存" : "保存 PIN"}
+      </button>
+    </form>
+  );
+}
+
+function MembersPanel({ currentMemberId }: { currentMemberId: string }) {
+  const [members, setMembers] = useState<MemberAdmin[]>([]);
+  const [name, setName] = useState("");
+  const [role, setRole] = useState<"admin" | "member">("member");
+  const [pin, setPin] = useState("");
+  const [resetPins, setResetPins] = useState<Record<string, string>>({});
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function refreshMembers() {
+    const result = await listMembers();
+    setMembers(result.members);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    listMembers()
+      .then((result) => {
+        if (!cancelled) {
+          setMembers(result.members);
+        }
+      })
+      .catch((loadError: unknown) => {
+        if (!cancelled) {
+          setError(loadError instanceof Error ? loadError.message : "加载成员失败");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleCreate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    setSubmitting(true);
+    try {
+      const input: CreateMemberInput = { name, role, pin };
+      await createMember(input);
+      setName("");
+      setRole("member");
+      setPin("");
+      await refreshMembers();
+      setMessage("成员已创建");
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "创建成员失败");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleDisable(id: string) {
+    setError("");
+    setMessage("");
+    try {
+      await disableMember(id);
+      await refreshMembers();
+      setMessage("成员已停用");
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "停用成员失败");
+    }
+  }
+
+  async function handleResetPIN(id: string) {
+    setError("");
+    setMessage("");
+    try {
+      await resetMemberPIN(id, resetPins[id] ?? "");
+      setResetPins((current) => ({ ...current, [id]: "" }));
+      setMessage("PIN 已重置");
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "重置 PIN 失败");
+    }
+  }
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className="text-sm font-medium text-slate-600">成员</p>
+          <h2 className="mt-1 text-2xl font-semibold">成员管理</h2>
+        </div>
+        {loading ? <p className="text-sm text-slate-500">加载中...</p> : null}
+      </div>
+
+      <form onSubmit={handleCreate} className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_9rem_9rem_auto] lg:items-end">
+        <CompactField label="姓名" value={name} onChange={setName} />
+        <label className="block">
+          <span className="text-sm font-medium text-slate-700">角色</span>
+          <select
+            value={role}
+            onChange={(event) => setRole(event.target.value as "admin" | "member")}
+            className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-3 text-base outline-none focus:border-emerald-700"
+          >
+            <option value="member">成员</option>
+            <option value="admin">管理员</option>
+          </select>
+        </label>
+        <CompactField label="初始 PIN" value={pin} onChange={setPin} type="password" />
+        <button
+          type="submit"
+          disabled={submitting}
+          className="rounded-md bg-emerald-700 px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          新增
+        </button>
+      </form>
+
+      <div className="mt-5 divide-y divide-slate-100">
+        {members.map((item) => (
+          <div key={item.id} className="grid gap-3 py-4 lg:grid-cols-[minmax(0,1fr)_8rem_12rem_auto] lg:items-center">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{item.name}</p>
+              <p className="mt-1 text-xs text-slate-500">
+                {item.role === "admin" ? "管理员" : "成员"} · {item.active ? "启用" : "已停用"}
+              </p>
+            </div>
+            <input
+              value={resetPins[item.id] ?? ""}
+              onChange={(event) => setResetPins((current) => ({ ...current, [item.id]: event.target.value }))}
+              type="password"
+              placeholder="新 PIN"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-700"
+            />
+            <button
+              type="button"
+              onClick={() => handleResetPIN(item.id)}
+              disabled={!item.active}
+              className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              重置 PIN
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDisable(item.id)}
+              disabled={!item.active || item.id === currentMemberId}
+              className="rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              停用
+            </button>
+          </div>
+        ))}
+      </div>
+      {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
+      {message ? <p className="mt-4 text-sm text-emerald-700">{message}</p> : null}
+    </section>
+  );
+}
+
+function CategoriesPanel({ categories, onChanged }: { categories: Category[]; onChanged: () => Promise<void> }) {
+  const [name, setName] = useState("");
+  const [type, setType] = useState<"expense" | "income">("expense");
+  const [iconKey, setIconKey] = useState("tag");
+  const [colorKey, setColorKey] = useState("emerald");
+  const [edits, setEdits] = useState<Record<string, { name: string; iconKey: string; colorKey: string; sortOrder: string }>>({});
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    setEdits((current) => {
+      const next = { ...current };
+      for (const category of categories) {
+        if (!next[category.id]) {
+          next[category.id] = {
+            name: category.name,
+            iconKey: category.iconKey,
+            colorKey: category.colorKey,
+            sortOrder: String(category.sortOrder)
+          };
+        }
+      }
+      return next;
+    });
+  }, [categories]);
+
+  async function handleCreate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    setSubmitting(true);
+    try {
+      const input: CreateCategoryInput = { name, type, iconKey, colorKey };
+      await createCategory(input);
+      setName("");
+      await onChanged();
+      setMessage("分类已创建");
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "创建分类失败");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleUpdate(category: Category) {
+    const edit = edits[category.id];
+    if (!edit) {
+      return;
+    }
+    setError("");
+    setMessage("");
+    try {
+      await updateCategory(category.id, {
+        name: edit.name,
+        iconKey: edit.iconKey,
+        colorKey: edit.colorKey,
+        sortOrder: Number(edit.sortOrder) || 0
+      });
+      await onChanged();
+      setMessage("分类已保存");
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "保存分类失败");
+    }
+  }
+
+  async function handleDisable(id: string) {
+    setError("");
+    setMessage("");
+    try {
+      await disableCategory(id);
+      await onChanged();
+      setMessage("分类已停用");
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "停用分类失败");
+    }
+  }
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+      <p className="text-sm font-medium text-slate-600">分类</p>
+      <h2 className="mt-1 text-2xl font-semibold">分类管理</h2>
+
+      <form onSubmit={handleCreate} className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_8rem_8rem_8rem_auto] lg:items-end">
+        <CompactField label="名称" value={name} onChange={setName} />
+        <label className="block">
+          <span className="text-sm font-medium text-slate-700">类型</span>
+          <select
+            value={type}
+            onChange={(event) => setType(event.target.value as "expense" | "income")}
+            className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-3 text-base outline-none focus:border-emerald-700"
+          >
+            <option value="expense">支出</option>
+            <option value="income">收入</option>
+          </select>
+        </label>
+        <CompactField label="图标键" value={iconKey} onChange={setIconKey} />
+        <CompactField label="颜色键" value={colorKey} onChange={setColorKey} />
+        <button
+          type="submit"
+          disabled={submitting}
+          className="rounded-md bg-emerald-700 px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          新增
+        </button>
+      </form>
+
+      <div className="mt-5 divide-y divide-slate-100">
+        {categories.map((category) => {
+          const edit = edits[category.id] ?? {
+            name: category.name,
+            iconKey: category.iconKey,
+            colorKey: category.colorKey,
+            sortOrder: String(category.sortOrder)
+          };
+          return (
+            <div key={category.id} className="grid gap-3 py-4 xl:grid-cols-[minmax(0,1fr)_8rem_8rem_6rem_auto_auto] xl:items-center">
+              <input
+                value={edit.name}
+                onChange={(event) => setEdits((current) => ({ ...current, [category.id]: { ...edit, name: event.target.value } }))}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-700"
+              />
+              <input
+                value={edit.iconKey}
+                onChange={(event) => setEdits((current) => ({ ...current, [category.id]: { ...edit, iconKey: event.target.value } }))}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-700"
+              />
+              <input
+                value={edit.colorKey}
+                onChange={(event) => setEdits((current) => ({ ...current, [category.id]: { ...edit, colorKey: event.target.value } }))}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-700"
+              />
+              <input
+                value={edit.sortOrder}
+                onChange={(event) => setEdits((current) => ({ ...current, [category.id]: { ...edit, sortOrder: event.target.value } }))}
+                inputMode="numeric"
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-700"
+              />
+              <button
+                type="button"
+                onClick={() => handleUpdate(category)}
+                className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700"
+              >
+                保存
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDisable(category.id)}
+                className="rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-700"
+              >
+                停用
+              </button>
+              <p className="text-xs text-slate-500 xl:col-span-6">{category.type === "expense" ? "支出" : "收入"}</p>
+            </div>
+          );
+        })}
+      </div>
+      {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
+      {message ? <p className="mt-4 text-sm text-emerald-700">{message}</p> : null}
+    </section>
+  );
+}
+
+function CompactField({
+  label,
+  value,
+  onChange,
+  type = "text"
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="text-sm font-medium text-slate-700">{label}</span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        type={type}
+        className="mt-2 w-full rounded-md border border-slate-300 px-3 py-3 text-base outline-none focus:border-emerald-700"
+      />
+    </label>
   );
 }
 
