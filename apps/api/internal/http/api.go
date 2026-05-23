@@ -23,6 +23,12 @@ func NewAPI(service *app.Service) stdhttp.Handler {
 	r.Post("/login", api.login)
 	r.Get("/session", api.session)
 	r.Post("/logout", api.logout)
+	r.Get("/categories", api.categories)
+	r.Get("/transactions", api.transactions)
+	r.Post("/transactions", api.createTransaction)
+	r.Patch("/transactions/{id}", api.updateTransaction)
+	r.Delete("/transactions/{id}", api.deleteTransaction)
+	r.Get("/overview/monthly", api.monthlyOverview)
 	return r
 }
 
@@ -99,6 +105,99 @@ func (api *API) logout(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	_ = api.service.Logout(r.Context(), sessionTokenFromRequest(r))
 	stdhttp.SetCookie(w, auth.ClearSessionCookie())
 	writeJSON(w, stdhttp.StatusOK, map[string]bool{"ok": true})
+}
+
+func (api *API) categories(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if _, ok := api.requireSession(w, r); !ok {
+		return
+	}
+	categories, err := api.service.ListCategories(r.Context())
+	if err != nil {
+		writeJSON(w, stdhttp.StatusInternalServerError, map[string]string{"error": "load categories failed"})
+		return
+	}
+	writeJSON(w, stdhttp.StatusOK, map[string]any{"categories": categories})
+}
+
+func (api *API) transactions(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if _, ok := api.requireSession(w, r); !ok {
+		return
+	}
+	transactions, err := api.service.ListTransactions(r.Context(), r.URL.Query().Get("month"))
+	if err != nil {
+		writeJSON(w, stdhttp.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, stdhttp.StatusOK, map[string]any{"transactions": transactions})
+}
+
+func (api *API) createTransaction(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	member, ok := api.requireSession(w, r)
+	if !ok {
+		return
+	}
+	var input app.CreateTransactionInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeJSON(w, stdhttp.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	transaction, err := api.service.CreateTransaction(r.Context(), member, input)
+	if err != nil {
+		writeJSON(w, stdhttp.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, stdhttp.StatusCreated, transaction)
+}
+
+func (api *API) updateTransaction(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	member, ok := api.requireSession(w, r)
+	if !ok {
+		return
+	}
+	var input app.UpdateTransactionInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeJSON(w, stdhttp.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	transaction, err := api.service.UpdateTransaction(r.Context(), member, chi.URLParam(r, "id"), input)
+	if err != nil {
+		writeJSON(w, stdhttp.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, stdhttp.StatusOK, transaction)
+}
+
+func (api *API) deleteTransaction(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	member, ok := api.requireSession(w, r)
+	if !ok {
+		return
+	}
+	if err := api.service.DeleteTransaction(r.Context(), member, chi.URLParam(r, "id")); err != nil {
+		writeJSON(w, stdhttp.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, stdhttp.StatusOK, map[string]bool{"ok": true})
+}
+
+func (api *API) monthlyOverview(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if _, ok := api.requireSession(w, r); !ok {
+		return
+	}
+	overview, err := api.service.MonthlyOverview(r.Context(), r.URL.Query().Get("month"))
+	if err != nil {
+		writeJSON(w, stdhttp.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, stdhttp.StatusOK, overview)
+}
+
+func (api *API) requireSession(w stdhttp.ResponseWriter, r *stdhttp.Request) (app.MemberDTO, bool) {
+	session, err := api.service.SessionFromToken(r.Context(), sessionTokenFromRequest(r))
+	if err != nil {
+		writeJSON(w, stdhttp.StatusUnauthorized, map[string]string{"error": "login required"})
+		return app.MemberDTO{}, false
+	}
+	return session.Member, true
 }
 
 func sessionExpiresAt() time.Time {
