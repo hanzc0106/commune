@@ -322,6 +322,145 @@ func TestMonthlyOverviewSummarizesTransactions(t *testing.T) {
 	}
 }
 
+func TestSettingsAdminMemberManagement(t *testing.T) {
+	pool := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	service := newInitializedTestService(t, ctx, pool)
+	admin := firstTestMember(t, ctx, pool)
+
+	created, err := service.CreateMember(ctx, admin, CreateMemberInput{
+		Name: "Li",
+		Role: "member",
+		PIN:  "654321",
+	})
+	if err != nil {
+		t.Fatalf("CreateMember returned error: %v", err)
+	}
+	if created.Name != "Li" || created.Role != "member" || !created.Active {
+		t.Fatalf("created member = %+v", created)
+	}
+
+	members, err := service.ListMembers(ctx, admin)
+	if err != nil {
+		t.Fatalf("ListMembers returned error: %v", err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("member count = %d, want 2", len(members))
+	}
+
+	if err := service.ResetMemberPIN(ctx, admin, created.ID, ResetMemberPINInput{PIN: "111111"}); err != nil {
+		t.Fatalf("ResetMemberPIN returned error: %v", err)
+	}
+	if _, _, err := service.Login(ctx, LoginInput{MemberID: created.ID, PIN: "111111"}); err != nil {
+		t.Fatalf("Login with reset PIN returned error: %v", err)
+	}
+
+	disabled, err := service.DisableMember(ctx, admin, created.ID)
+	if err != nil {
+		t.Fatalf("DisableMember returned error: %v", err)
+	}
+	if disabled.Active {
+		t.Fatalf("disabled member is active: %+v", disabled)
+	}
+	if _, _, err := service.Login(ctx, LoginInput{MemberID: created.ID, PIN: "111111"}); err == nil {
+		t.Fatal("disabled member logged in, want error")
+	}
+}
+
+func TestSettingsRejectsMemberAdminActions(t *testing.T) {
+	pool := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	service := newInitializedTestService(t, ctx, pool)
+	_, member := createTestMember(t, ctx, pool)
+
+	if _, err := service.ListMembers(ctx, member); err == nil {
+		t.Fatal("member listed members, want error")
+	}
+	if _, err := service.CreateCategory(ctx, member, CreateCategoryInput{Name: "测试", Type: "expense"}); err == nil {
+		t.Fatal("member created category, want error")
+	}
+}
+
+func TestSettingsCannotDisableLastAdmin(t *testing.T) {
+	pool := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	service := newInitializedTestService(t, ctx, pool)
+	admin := firstTestMember(t, ctx, pool)
+
+	if _, err := service.DisableMember(ctx, admin, admin.ID); err == nil {
+		t.Fatal("disabled last admin, want error")
+	}
+}
+
+func TestChangeOwnPIN(t *testing.T) {
+	pool := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	service := newInitializedTestService(t, ctx, pool)
+	admin := firstTestMember(t, ctx, pool)
+
+	if err := service.ChangeOwnPIN(ctx, admin, ChangeOwnPINInput{
+		CurrentPIN: "wrong",
+		NewPIN:     "222222",
+	}); err == nil {
+		t.Fatal("ChangeOwnPIN accepted wrong current PIN")
+	}
+	if err := service.ChangeOwnPIN(ctx, admin, ChangeOwnPINInput{
+		CurrentPIN: "123456",
+		NewPIN:     "222222",
+	}); err != nil {
+		t.Fatalf("ChangeOwnPIN returned error: %v", err)
+	}
+	if _, _, err := service.Login(ctx, LoginInput{MemberID: admin.ID, PIN: "222222"}); err != nil {
+		t.Fatalf("Login with changed PIN returned error: %v", err)
+	}
+}
+
+func TestSettingsCategoryManagement(t *testing.T) {
+	pool := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	service := newInitializedTestService(t, ctx, pool)
+	admin := firstTestMember(t, ctx, pool)
+
+	category, err := service.CreateCategory(ctx, admin, CreateCategoryInput{
+		Name:     "宠物",
+		Type:     "expense",
+		IconKey:  "paw-print",
+		ColorKey: "orange",
+	})
+	if err != nil {
+		t.Fatalf("CreateCategory returned error: %v", err)
+	}
+	if category.Name != "宠物" || category.Type != "expense" {
+		t.Fatalf("category = %+v", category)
+	}
+
+	updated, err := service.UpdateCategory(ctx, admin, category.ID, UpdateCategoryInput{
+		Name:      "宠物用品",
+		IconKey:   "bone",
+		ColorKey:  "amber",
+		SortOrder: 120,
+	})
+	if err != nil {
+		t.Fatalf("UpdateCategory returned error: %v", err)
+	}
+	if updated.Name != "宠物用品" || updated.SortOrder != 120 {
+		t.Fatalf("updated category = %+v", updated)
+	}
+
+	if _, err := service.DisableCategory(ctx, admin, category.ID); err != nil {
+		t.Fatalf("DisableCategory returned error: %v", err)
+	}
+	activeCategories, err := service.ListCategories(ctx)
+	if err != nil {
+		t.Fatalf("ListCategories returned error: %v", err)
+	}
+	for _, active := range activeCategories {
+		if active.ID == category.ID {
+			t.Fatalf("disabled category returned in active list: %+v", active)
+		}
+	}
+}
+
 func newInitializedTestService(t *testing.T, ctx context.Context, pool *pgxpool.Pool) *Service {
 	t.Helper()
 	migrations, err := db.LoadMigrations("../../migrations")
