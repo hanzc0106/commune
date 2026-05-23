@@ -8,3 +8,8 @@ SELECT *
 FROM categories
 WHERE active = TRUE
 ORDER BY type, sort_order, name;
+
+-- name: GetCategoryByID :one
+SELECT *
+FROM categories
+WHERE id = $1;

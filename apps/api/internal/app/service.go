@@ -67,6 +67,51 @@ type LoginResult struct {
 	Member MemberDTO `json:"member"`
 }
 
+type CreateTransactionInput struct {
+	Type            string `json:"type"`
+	AmountCents     int64  `json:"amountCents"`
+	CategoryID      string `json:"categoryId"`
+	TransactionDate string `json:"transactionDate"`
+	Note            string `json:"note"`
+}
+
+type UpdateTransactionInput struct {
+	Type            string `json:"type"`
+	AmountCents     int64  `json:"amountCents"`
+	CategoryID      string `json:"categoryId"`
+	TransactionDate string `json:"transactionDate"`
+	Note            string `json:"note"`
+}
+
+type TransactionDTO struct {
+	ID              string      `json:"id"`
+	Type            string      `json:"type"`
+	AmountCents     int64       `json:"amountCents"`
+	Category        CategoryDTO `json:"category"`
+	Member          MemberDTO   `json:"member"`
+	TransactionDate string      `json:"transactionDate"`
+	Note            string      `json:"note"`
+	CreatedAt       string      `json:"createdAt"`
+	UpdatedAt       string      `json:"updatedAt"`
+}
+
+type MonthlyCategoryTotalDTO struct {
+	CategoryID   string `json:"categoryId"`
+	CategoryName string `json:"categoryName"`
+	IconKey      string `json:"iconKey"`
+	ColorKey     string `json:"colorKey"`
+	ExpenseCents int64  `json:"expenseCents"`
+}
+
+type MonthlyOverviewDTO struct {
+	Month          string                    `json:"month"`
+	IncomeCents    int64                     `json:"incomeCents"`
+	ExpenseCents   int64                     `json:"expenseCents"`
+	BalanceCents   int64                     `json:"balanceCents"`
+	CategoryTotals []MonthlyCategoryTotalDTO `json:"categoryTotals"`
+	Recent         []TransactionDTO          `json:"recent"`
+}
+
 var defaultCategories = []struct {
 	name      string
 	kind      string
@@ -182,6 +227,136 @@ func (s *Service) ListCategories(ctx context.Context) ([]CategoryDTO, error) {
 	return categories, nil
 }
 
+func (s *Service) CreateTransaction(ctx context.Context, actor MemberDTO, input CreateTransactionInput) (TransactionDTO, error) {
+	parsed, err := s.validateTransactionInput(ctx, input.Type, input.AmountCents, input.CategoryID, input.TransactionDate)
+	if err != nil {
+		return TransactionDTO{}, err
+	}
+	memberID, err := uuidFromString(actor.ID)
+	if err != nil {
+		return TransactionDTO{}, errors.New("invalid member ID")
+	}
+	transaction, err := s.queries.CreateTransaction(ctx, queries.CreateTransactionParams{
+		Type:            parsed.category.Type,
+		AmountCents:     input.AmountCents,
+		CategoryID:      parsed.category.ID,
+		MemberID:        memberID,
+		TransactionDate: parsed.transactionDate,
+		Note:            strings.TrimSpace(input.Note),
+	})
+	if err != nil {
+		return TransactionDTO{}, err
+	}
+	return s.transactionDTOFromTransaction(ctx, transaction)
+}
+
+func (s *Service) ListTransactions(ctx context.Context, month string) ([]TransactionDTO, error) {
+	monthRange, err := parseMonthRange(month)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.queries.ListTransactionsByMonth(ctx, queries.ListTransactionsByMonthParams{
+		StartDate: dateValue(monthRange.start),
+		EndDate:   dateValue(monthRange.end),
+	})
+	if err != nil {
+		return nil, err
+	}
+	transactions := make([]TransactionDTO, 0, len(rows))
+	for _, row := range rows {
+		transactions = append(transactions, transactionDTOFromRow(row))
+	}
+	return transactions, nil
+}
+
+func (s *Service) UpdateTransaction(ctx context.Context, actor MemberDTO, id string, input UpdateTransactionInput) (TransactionDTO, error) {
+	transactionID, err := uuidFromString(id)
+	if err != nil {
+		return TransactionDTO{}, errors.New("invalid transaction ID")
+	}
+	existing, err := s.queries.GetTransactionByID(ctx, transactionID)
+	if err != nil {
+		return TransactionDTO{}, err
+	}
+	if !canManageTransaction(actor, existing.MemberID) {
+		return TransactionDTO{}, errors.New("not allowed to edit transaction")
+	}
+	parsed, err := s.validateTransactionInput(ctx, input.Type, input.AmountCents, input.CategoryID, input.TransactionDate)
+	if err != nil {
+		return TransactionDTO{}, err
+	}
+	updated, err := s.queries.UpdateTransaction(ctx, queries.UpdateTransactionParams{
+		ID:              transactionID,
+		Type:            parsed.category.Type,
+		AmountCents:     input.AmountCents,
+		CategoryID:      parsed.category.ID,
+		TransactionDate: parsed.transactionDate,
+		Note:            strings.TrimSpace(input.Note),
+	})
+	if err != nil {
+		return TransactionDTO{}, err
+	}
+	return s.transactionDTOFromTransaction(ctx, updated)
+}
+
+func (s *Service) DeleteTransaction(ctx context.Context, actor MemberDTO, id string) error {
+	transactionID, err := uuidFromString(id)
+	if err != nil {
+		return errors.New("invalid transaction ID")
+	}
+	existing, err := s.queries.GetTransactionByID(ctx, transactionID)
+	if err != nil {
+		return err
+	}
+	if !canManageTransaction(actor, existing.MemberID) {
+		return errors.New("not allowed to delete transaction")
+	}
+	return s.queries.DeleteTransaction(ctx, transactionID)
+}
+
+func (s *Service) MonthlyOverview(ctx context.Context, month string) (MonthlyOverviewDTO, error) {
+	monthRange, err := parseMonthRange(month)
+	if err != nil {
+		return MonthlyOverviewDTO{}, err
+	}
+	totals, err := s.queries.GetMonthlyTotals(ctx, queries.GetMonthlyTotalsParams{
+		StartDate: dateValue(monthRange.start),
+		EndDate:   dateValue(monthRange.end),
+	})
+	if err != nil {
+		return MonthlyOverviewDTO{}, err
+	}
+	categoryRows, err := s.queries.ListMonthlyExpenseCategoryTotals(ctx, queries.ListMonthlyExpenseCategoryTotalsParams{
+		StartDate: dateValue(monthRange.start),
+		EndDate:   dateValue(monthRange.end),
+	})
+	if err != nil {
+		return MonthlyOverviewDTO{}, err
+	}
+	transactions, err := s.ListTransactions(ctx, monthRange.month)
+	if err != nil {
+		return MonthlyOverviewDTO{}, err
+	}
+	categoryTotals := make([]MonthlyCategoryTotalDTO, 0, len(categoryRows))
+	for _, row := range categoryRows {
+		categoryTotals = append(categoryTotals, MonthlyCategoryTotalDTO{
+			CategoryID:   row.CategoryID.String(),
+			CategoryName: row.CategoryName,
+			IconKey:      row.CategoryIconKey,
+			ColorKey:     row.CategoryColorKey,
+			ExpenseCents: row.ExpenseCents,
+		})
+	}
+	return MonthlyOverviewDTO{
+		Month:          monthRange.month,
+		IncomeCents:    totals.IncomeCents,
+		ExpenseCents:   totals.ExpenseCents,
+		BalanceCents:   totals.IncomeCents - totals.ExpenseCents,
+		CategoryTotals: categoryTotals,
+		Recent:         transactions,
+	}, nil
+}
+
 func (s *Service) Bootstrap(ctx context.Context, rawToken string) (BootstrapResult, error) {
 	exists, err := s.queries.AppSettingsExist(ctx)
 	if err != nil {
@@ -292,6 +467,144 @@ func categoryDTO(category queries.Category) CategoryDTO {
 		SortOrder:     category.SortOrder,
 		SystemDefault: category.SystemDefault,
 	}
+}
+
+type parsedTransactionInput struct {
+	category        queries.Category
+	transactionDate pgtype.Date
+}
+
+type monthRange struct {
+	month string
+	start time.Time
+	end   time.Time
+}
+
+func (s *Service) validateTransactionInput(ctx context.Context, transactionType string, amountCents int64, categoryID string, transactionDate string) (parsedTransactionInput, error) {
+	transactionType = strings.TrimSpace(transactionType)
+	if transactionType != "expense" && transactionType != "income" {
+		return parsedTransactionInput{}, errors.New("transaction type must be expense or income")
+	}
+	if amountCents <= 0 {
+		return parsedTransactionInput{}, errors.New("amount must be greater than zero")
+	}
+	categoryUUID, err := uuidFromString(categoryID)
+	if err != nil {
+		return parsedTransactionInput{}, errors.New("invalid category ID")
+	}
+	category, err := s.queries.GetCategoryByID(ctx, categoryUUID)
+	if err != nil {
+		return parsedTransactionInput{}, err
+	}
+	if !category.Active {
+		return parsedTransactionInput{}, errors.New("category is inactive")
+	}
+	if category.Type != transactionType {
+		return parsedTransactionInput{}, errors.New("transaction type does not match category type")
+	}
+	date, err := parseDate(transactionDate)
+	if err != nil {
+		return parsedTransactionInput{}, err
+	}
+	return parsedTransactionInput{
+		category:        category,
+		transactionDate: dateValue(date),
+	}, nil
+}
+
+func (s *Service) transactionDTOFromTransaction(ctx context.Context, transaction queries.Transaction) (TransactionDTO, error) {
+	category, err := s.queries.GetCategoryByID(ctx, transaction.CategoryID)
+	if err != nil {
+		return TransactionDTO{}, err
+	}
+	member, err := s.queries.GetMemberByID(ctx, transaction.MemberID)
+	if err != nil {
+		return TransactionDTO{}, err
+	}
+	return TransactionDTO{
+		ID:              transaction.ID.String(),
+		Type:            transaction.Type,
+		AmountCents:     transaction.AmountCents,
+		Category:        categoryDTO(category),
+		Member:          memberDTO(member.ID, member.Name, member.Role),
+		TransactionDate: formatDate(transaction.TransactionDate),
+		Note:            transaction.Note,
+		CreatedAt:       formatTimestamp(transaction.CreatedAt),
+		UpdatedAt:       formatTimestamp(transaction.UpdatedAt),
+	}, nil
+}
+
+func transactionDTOFromRow(row queries.ListTransactionsByMonthRow) TransactionDTO {
+	return TransactionDTO{
+		ID:          row.ID.String(),
+		Type:        row.Type,
+		AmountCents: row.AmountCents,
+		Category: CategoryDTO{
+			ID:       row.CategoryID.String(),
+			Name:     row.CategoryName,
+			Type:     row.CategoryType,
+			IconKey:  row.CategoryIconKey,
+			ColorKey: row.CategoryColorKey,
+		},
+		Member:          memberDTO(row.MemberID, row.MemberName, row.MemberRole),
+		TransactionDate: formatDate(row.TransactionDate),
+		Note:            row.Note,
+		CreatedAt:       formatTimestamp(row.CreatedAt),
+		UpdatedAt:       formatTimestamp(row.UpdatedAt),
+	}
+}
+
+func canManageTransaction(actor MemberDTO, ownerID pgtype.UUID) bool {
+	if actor.Role == "admin" {
+		return true
+	}
+	actorID, err := uuidFromString(actor.ID)
+	if err != nil {
+		return false
+	}
+	return actorID == ownerID
+}
+
+func parseDate(value string) (time.Time, error) {
+	date, err := time.Parse("2006-01-02", strings.TrimSpace(value))
+	if err != nil {
+		return time.Time{}, errors.New("transaction date must use YYYY-MM-DD")
+	}
+	return date, nil
+}
+
+func parseMonthRange(value string) (monthRange, error) {
+	month := strings.TrimSpace(value)
+	if month == "" {
+		month = time.Now().Format("2006-01")
+	}
+	start, err := time.Parse("2006-01", month)
+	if err != nil {
+		return monthRange{}, errors.New("month must use YYYY-MM")
+	}
+	return monthRange{
+		month: month,
+		start: start,
+		end:   start.AddDate(0, 1, 0),
+	}, nil
+}
+
+func dateValue(value time.Time) pgtype.Date {
+	return pgtype.Date{Time: value, Valid: true}
+}
+
+func formatDate(value pgtype.Date) string {
+	if !value.Valid {
+		return ""
+	}
+	return value.Time.Format("2006-01-02")
+}
+
+func formatTimestamp(value pgtype.Timestamptz) string {
+	if !value.Valid {
+		return ""
+	}
+	return value.Time.Format(time.RFC3339)
 }
 
 func uuidFromString(value string) (pgtype.UUID, error) {
