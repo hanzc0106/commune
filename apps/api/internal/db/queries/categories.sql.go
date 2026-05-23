@@ -51,6 +51,31 @@ func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) 
 	return i, err
 }
 
+const disableCategory = `-- name: DisableCategory :one
+UPDATE categories
+SET active = FALSE, updated_at = now()
+WHERE id = $1
+RETURNING id, name, type, icon_key, color_key, sort_order, active, system_default, created_at, updated_at
+`
+
+func (q *Queries) DisableCategory(ctx context.Context, id pgtype.UUID) (Category, error) {
+	row := q.db.QueryRow(ctx, disableCategory, id)
+	var i Category
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Type,
+		&i.IconKey,
+		&i.ColorKey,
+		&i.SortOrder,
+		&i.Active,
+		&i.SystemDefault,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getCategoryByID = `-- name: GetCategoryByID :one
 SELECT id, name, type, icon_key, color_key, sort_order, active, system_default, created_at, updated_at
 FROM categories
@@ -111,4 +136,85 @@ func (q *Queries) ListActiveCategories(ctx context.Context) ([]Category, error) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const listCategories = `-- name: ListCategories :many
+SELECT id, name, type, icon_key, color_key, sort_order, active, system_default, created_at, updated_at
+FROM categories
+ORDER BY active DESC, type, sort_order, name
+`
+
+func (q *Queries) ListCategories(ctx context.Context) ([]Category, error) {
+	rows, err := q.db.Query(ctx, listCategories)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Category
+	for rows.Next() {
+		var i Category
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Type,
+			&i.IconKey,
+			&i.ColorKey,
+			&i.SortOrder,
+			&i.Active,
+			&i.SystemDefault,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateCategory = `-- name: UpdateCategory :one
+UPDATE categories
+SET
+    name = $2,
+    icon_key = $3,
+    color_key = $4,
+    sort_order = $5,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, name, type, icon_key, color_key, sort_order, active, system_default, created_at, updated_at
+`
+
+type UpdateCategoryParams struct {
+	ID        pgtype.UUID
+	Name      string
+	IconKey   string
+	ColorKey  string
+	SortOrder int32
+}
+
+func (q *Queries) UpdateCategory(ctx context.Context, arg UpdateCategoryParams) (Category, error) {
+	row := q.db.QueryRow(ctx, updateCategory,
+		arg.ID,
+		arg.Name,
+		arg.IconKey,
+		arg.ColorKey,
+		arg.SortOrder,
+	)
+	var i Category
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Type,
+		&i.IconKey,
+		&i.ColorKey,
+		&i.SortOrder,
+		&i.Active,
+		&i.SystemDefault,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

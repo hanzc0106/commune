@@ -11,6 +11,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countActiveAdmins = `-- name: CountActiveAdmins :one
+SELECT count(*)::bigint
+FROM members
+WHERE active = TRUE AND role = 'admin'
+`
+
+func (q *Queries) CountActiveAdmins(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveAdmins)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createMember = `-- name: CreateMember :one
 INSERT INTO members (name, pin_hash, role, active)
 VALUES ($1, $2, $3, TRUE)
@@ -25,6 +38,28 @@ type CreateMemberParams struct {
 
 func (q *Queries) CreateMember(ctx context.Context, arg CreateMemberParams) (Member, error) {
 	row := q.db.QueryRow(ctx, createMember, arg.Name, arg.PinHash, arg.Role)
+	var i Member
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.PinHash,
+		&i.Role,
+		&i.Active,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const disableMember = `-- name: DisableMember :one
+UPDATE members
+SET active = FALSE, updated_at = now()
+WHERE id = $1
+RETURNING id, name, pin_hash, role, active, created_at, updated_at
+`
+
+func (q *Queries) DisableMember(ctx context.Context, id pgtype.UUID) (Member, error) {
+	row := q.db.QueryRow(ctx, disableMember, id)
 	var i Member
 	err := row.Scan(
 		&i.ID,
@@ -89,4 +124,73 @@ func (q *Queries) ListActiveLoginMembers(ctx context.Context) ([]ListActiveLogin
 		return nil, err
 	}
 	return items, nil
+}
+
+const listMembers = `-- name: ListMembers :many
+SELECT id, name, role, active, created_at, updated_at
+FROM members
+ORDER BY active DESC, lower(name)
+`
+
+type ListMembersRow struct {
+	ID        pgtype.UUID
+	Name      string
+	Role      string
+	Active    bool
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
+func (q *Queries) ListMembers(ctx context.Context) ([]ListMembersRow, error) {
+	rows, err := q.db.Query(ctx, listMembers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMembersRow
+	for rows.Next() {
+		var i ListMembersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Role,
+			&i.Active,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateMemberPIN = `-- name: UpdateMemberPIN :one
+UPDATE members
+SET pin_hash = $2, updated_at = now()
+WHERE id = $1
+RETURNING id, name, pin_hash, role, active, created_at, updated_at
+`
+
+type UpdateMemberPINParams struct {
+	ID      pgtype.UUID
+	PinHash string
+}
+
+func (q *Queries) UpdateMemberPIN(ctx context.Context, arg UpdateMemberPINParams) (Member, error) {
+	row := q.db.QueryRow(ctx, updateMemberPIN, arg.ID, arg.PinHash)
+	var i Member
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.PinHash,
+		&i.Role,
+		&i.Active,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
