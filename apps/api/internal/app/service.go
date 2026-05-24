@@ -112,6 +112,42 @@ type MonthlyOverviewDTO struct {
 	Recent         []TransactionDTO          `json:"recent"`
 }
 
+type MemberAdminDTO struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Role   string `json:"role"`
+	Active bool   `json:"active"`
+}
+
+type CreateMemberInput struct {
+	Name string `json:"name"`
+	Role string `json:"role"`
+	PIN  string `json:"pin"`
+}
+
+type ResetMemberPINInput struct {
+	PIN string `json:"pin"`
+}
+
+type ChangeOwnPINInput struct {
+	CurrentPIN string `json:"currentPin"`
+	NewPIN     string `json:"newPin"`
+}
+
+type CreateCategoryInput struct {
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	IconKey  string `json:"iconKey"`
+	ColorKey string `json:"colorKey"`
+}
+
+type UpdateCategoryInput struct {
+	Name      string `json:"name"`
+	IconKey   string `json:"iconKey"`
+	ColorKey  string `json:"colorKey"`
+	SortOrder int32  `json:"sortOrder"`
+}
+
 var defaultCategories = []struct {
 	name      string
 	kind      string
@@ -357,6 +393,220 @@ func (s *Service) MonthlyOverview(ctx context.Context, month string) (MonthlyOve
 	}, nil
 }
 
+func (s *Service) ListMembers(ctx context.Context, actor MemberDTO) ([]MemberAdminDTO, error) {
+	if err := requireAdmin(actor); err != nil {
+		return nil, err
+	}
+	rows, err := s.queries.ListMembers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	members := make([]MemberAdminDTO, 0, len(rows))
+	for _, row := range rows {
+		members = append(members, MemberAdminDTO{
+			ID:     row.ID.String(),
+			Name:   row.Name,
+			Role:   row.Role,
+			Active: row.Active,
+		})
+	}
+	return members, nil
+}
+
+func (s *Service) CreateMember(ctx context.Context, actor MemberDTO, input CreateMemberInput) (MemberAdminDTO, error) {
+	if err := requireAdmin(actor); err != nil {
+		return MemberAdminDTO{}, err
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return MemberAdminDTO{}, errors.New("member name is required")
+	}
+	role := strings.TrimSpace(input.Role)
+	if role != "admin" && role != "member" {
+		return MemberAdminDTO{}, errors.New("member role must be admin or member")
+	}
+	pinHash, err := auth.HashPIN(input.PIN)
+	if err != nil {
+		return MemberAdminDTO{}, err
+	}
+	member, err := s.queries.CreateMember(ctx, queries.CreateMemberParams{
+		Name:    name,
+		PinHash: pinHash,
+		Role:    role,
+	})
+	if err != nil {
+		return MemberAdminDTO{}, err
+	}
+	return memberAdminDTO(member), nil
+}
+
+func (s *Service) DisableMember(ctx context.Context, actor MemberDTO, id string) (MemberAdminDTO, error) {
+	if err := requireAdmin(actor); err != nil {
+		return MemberAdminDTO{}, err
+	}
+	memberID, err := uuidFromString(id)
+	if err != nil {
+		return MemberAdminDTO{}, errors.New("invalid member ID")
+	}
+	member, err := s.queries.GetMemberByID(ctx, memberID)
+	if err != nil {
+		return MemberAdminDTO{}, err
+	}
+	if member.Role == "admin" && member.Active {
+		adminCount, err := s.queries.CountActiveAdmins(ctx)
+		if err != nil {
+			return MemberAdminDTO{}, err
+		}
+		if adminCount <= 1 {
+			return MemberAdminDTO{}, errors.New("cannot disable the last active admin")
+		}
+	}
+	disabled, err := s.queries.DisableMember(ctx, memberID)
+	if err != nil {
+		return MemberAdminDTO{}, err
+	}
+	return memberAdminDTO(disabled), nil
+}
+
+func (s *Service) ResetMemberPIN(ctx context.Context, actor MemberDTO, id string, input ResetMemberPINInput) error {
+	if err := requireAdmin(actor); err != nil {
+		return err
+	}
+	memberID, err := uuidFromString(id)
+	if err != nil {
+		return errors.New("invalid member ID")
+	}
+	pinHash, err := auth.HashPIN(input.PIN)
+	if err != nil {
+		return err
+	}
+	_, err = s.queries.UpdateMemberPIN(ctx, queries.UpdateMemberPINParams{
+		ID:      memberID,
+		PinHash: pinHash,
+	})
+	return err
+}
+
+func (s *Service) ChangeOwnPIN(ctx context.Context, actor MemberDTO, input ChangeOwnPINInput) error {
+	memberID, err := uuidFromString(actor.ID)
+	if err != nil {
+		return errors.New("invalid member ID")
+	}
+	member, err := s.queries.GetMemberByID(ctx, memberID)
+	if err != nil {
+		return err
+	}
+	if !member.Active || !auth.VerifyPIN(member.PinHash, input.CurrentPIN) {
+		return errors.New("invalid current PIN")
+	}
+	pinHash, err := auth.HashPIN(input.NewPIN)
+	if err != nil {
+		return err
+	}
+	_, err = s.queries.UpdateMemberPIN(ctx, queries.UpdateMemberPINParams{
+		ID:      memberID,
+		PinHash: pinHash,
+	})
+	return err
+}
+
+func (s *Service) ListAllCategories(ctx context.Context, actor MemberDTO) ([]CategoryDTO, error) {
+	if err := requireAdmin(actor); err != nil {
+		return nil, err
+	}
+	rows, err := s.queries.ListCategories(ctx)
+	if err != nil {
+		return nil, err
+	}
+	categories := make([]CategoryDTO, 0, len(rows))
+	for _, row := range rows {
+		categories = append(categories, categoryDTO(row))
+	}
+	return categories, nil
+}
+
+func (s *Service) CreateCategory(ctx context.Context, actor MemberDTO, input CreateCategoryInput) (CategoryDTO, error) {
+	if err := requireAdmin(actor); err != nil {
+		return CategoryDTO{}, err
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return CategoryDTO{}, errors.New("category name is required")
+	}
+	categoryType := strings.TrimSpace(input.Type)
+	if categoryType != "expense" && categoryType != "income" {
+		return CategoryDTO{}, errors.New("category type must be expense or income")
+	}
+	iconKey := strings.TrimSpace(input.IconKey)
+	if iconKey == "" {
+		iconKey = "circle"
+	}
+	colorKey := strings.TrimSpace(input.ColorKey)
+	if colorKey == "" {
+		colorKey = "slate"
+	}
+	category, err := s.queries.CreateCategory(ctx, queries.CreateCategoryParams{
+		Name:          name,
+		Type:          categoryType,
+		IconKey:       iconKey,
+		ColorKey:      colorKey,
+		SortOrder:     500,
+		SystemDefault: false,
+	})
+	if err != nil {
+		return CategoryDTO{}, err
+	}
+	return categoryDTO(category), nil
+}
+
+func (s *Service) UpdateCategory(ctx context.Context, actor MemberDTO, id string, input UpdateCategoryInput) (CategoryDTO, error) {
+	if err := requireAdmin(actor); err != nil {
+		return CategoryDTO{}, err
+	}
+	categoryID, err := uuidFromString(id)
+	if err != nil {
+		return CategoryDTO{}, errors.New("invalid category ID")
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return CategoryDTO{}, errors.New("category name is required")
+	}
+	iconKey := strings.TrimSpace(input.IconKey)
+	if iconKey == "" {
+		iconKey = "circle"
+	}
+	colorKey := strings.TrimSpace(input.ColorKey)
+	if colorKey == "" {
+		colorKey = "slate"
+	}
+	category, err := s.queries.UpdateCategory(ctx, queries.UpdateCategoryParams{
+		ID:        categoryID,
+		Name:      name,
+		IconKey:   iconKey,
+		ColorKey:  colorKey,
+		SortOrder: input.SortOrder,
+	})
+	if err != nil {
+		return CategoryDTO{}, err
+	}
+	return categoryDTO(category), nil
+}
+
+func (s *Service) DisableCategory(ctx context.Context, actor MemberDTO, id string) (CategoryDTO, error) {
+	if err := requireAdmin(actor); err != nil {
+		return CategoryDTO{}, err
+	}
+	categoryID, err := uuidFromString(id)
+	if err != nil {
+		return CategoryDTO{}, errors.New("invalid category ID")
+	}
+	category, err := s.queries.DisableCategory(ctx, categoryID)
+	if err != nil {
+		return CategoryDTO{}, err
+	}
+	return categoryDTO(category), nil
+}
+
 func (s *Service) Bootstrap(ctx context.Context, rawToken string) (BootstrapResult, error) {
 	exists, err := s.queries.AppSettingsExist(ctx)
 	if err != nil {
@@ -457,6 +707,15 @@ func memberDTO(id pgtype.UUID, name string, role string) MemberDTO {
 	}
 }
 
+func memberAdminDTO(member queries.Member) MemberAdminDTO {
+	return MemberAdminDTO{
+		ID:     member.ID.String(),
+		Name:   member.Name,
+		Role:   member.Role,
+		Active: member.Active,
+	}
+}
+
 func categoryDTO(category queries.Category) CategoryDTO {
 	return CategoryDTO{
 		ID:            category.ID.String(),
@@ -467,6 +726,13 @@ func categoryDTO(category queries.Category) CategoryDTO {
 		SortOrder:     category.SortOrder,
 		SystemDefault: category.SystemDefault,
 	}
+}
+
+func requireAdmin(actor MemberDTO) error {
+	if actor.Role != "admin" {
+		return errors.New("admin permission required")
+	}
+	return nil
 }
 
 type parsedTransactionInput struct {

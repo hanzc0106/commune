@@ -4,6 +4,10 @@ export type Member = {
   role: "admin" | "member";
 };
 
+export type MemberAdmin = Member & {
+  active: boolean;
+};
+
 export type BootstrapResponse = {
   initialized: boolean;
   householdName: string;
@@ -57,6 +61,26 @@ export type TransactionInput = {
   note: string;
 };
 
+export type CreateMemberInput = {
+  name: string;
+  role: "admin" | "member";
+  pin: string;
+};
+
+export type CreateCategoryInput = {
+  name: string;
+  type: "expense" | "income";
+  iconKey: string;
+  colorKey: string;
+};
+
+export type UpdateCategoryInput = {
+  name: string;
+  iconKey: string;
+  colorKey: string;
+  sortOrder: number;
+};
+
 export async function getBootstrap(): Promise<BootstrapResponse> {
   return request<BootstrapResponse>("/api/bootstrap");
 }
@@ -92,6 +116,59 @@ export async function logout(): Promise<{ ok: true }> {
 
 export async function listCategories(): Promise<{ categories: Category[] }> {
   return request<{ categories: Category[] }>("/api/categories");
+}
+
+export async function listMembers(): Promise<{ members: MemberAdmin[] }> {
+  return request<{ members: MemberAdmin[] }>("/api/members");
+}
+
+export async function createMember(input: CreateMemberInput): Promise<MemberAdmin> {
+  return request<MemberAdmin>("/api/members", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function disableMember(id: string): Promise<MemberAdmin> {
+  return request<MemberAdmin>(`/api/members/${encodeURIComponent(id)}/disable`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+}
+
+export async function resetMemberPIN(id: string, pin: string): Promise<{ ok: true }> {
+  return request<{ ok: true }>(`/api/members/${encodeURIComponent(id)}/reset-pin`, {
+    method: "POST",
+    body: JSON.stringify({ pin })
+  });
+}
+
+export async function changeOwnPIN(input: { currentPin: string; newPin: string }): Promise<{ ok: true }> {
+  return request<{ ok: true }>("/api/me/change-pin", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function createCategory(input: CreateCategoryInput): Promise<Category> {
+  return request<Category>("/api/categories", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function updateCategory(id: string, input: UpdateCategoryInput): Promise<Category> {
+  return request<Category>(`/api/categories/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function disableCategory(id: string): Promise<Category> {
+  return request<Category>(`/api/categories/${encodeURIComponent(id)}/disable`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
 }
 
 export async function listTransactions(month: string): Promise<{ transactions: Transaction[] }> {

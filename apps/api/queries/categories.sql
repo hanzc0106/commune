@@ -13,3 +13,25 @@ ORDER BY type, sort_order, name;
 SELECT *
 FROM categories
 WHERE id = $1;
+
+-- name: ListCategories :many
+SELECT *
+FROM categories
+ORDER BY active DESC, type, sort_order, name;
+
+-- name: UpdateCategory :one
+UPDATE categories
+SET
+    name = $2,
+    icon_key = $3,
+    color_key = $4,
+    sort_order = $5,
+    updated_at = now()
+WHERE id = $1
+RETURNING *;
+
+-- name: DisableCategory :one
+UPDATE categories
+SET active = FALSE, updated_at = now()
+WHERE id = $1
+RETURNING *;
