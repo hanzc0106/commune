@@ -33,6 +33,9 @@ func NewAPI(service *app.Service) stdhttp.Handler {
 	r.Post("/categories", api.createCategory)
 	r.Patch("/categories/{id}", api.updateCategory)
 	r.Post("/categories/{id}/disable", api.disableCategory)
+	r.Get("/budgets", api.budgets)
+	r.Put("/budgets/{month}/{categoryId}", api.setBudget)
+	r.Post("/budgets/{month}/copy-previous", api.copyPreviousBudgets)
 	r.Get("/transactions", api.transactions)
 	r.Post("/transactions", api.createTransaction)
 	r.Patch("/transactions/{id}", api.updateTransaction)
@@ -253,6 +256,49 @@ func (api *API) disableCategory(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 	writeJSON(w, stdhttp.StatusOK, category)
+}
+
+func (api *API) budgets(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if _, ok := api.requireSession(w, r); !ok {
+		return
+	}
+	summary, err := api.service.ListBudgets(r.Context(), r.URL.Query().Get("month"))
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, stdhttp.StatusOK, summary)
+}
+
+func (api *API) setBudget(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	member, ok := api.requireSession(w, r)
+	if !ok {
+		return
+	}
+	var input app.SetBudgetInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeJSON(w, stdhttp.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	item, err := api.service.SetBudget(r.Context(), member, chi.URLParam(r, "month"), chi.URLParam(r, "categoryId"), input)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, stdhttp.StatusOK, item)
+}
+
+func (api *API) copyPreviousBudgets(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	member, ok := api.requireSession(w, r)
+	if !ok {
+		return
+	}
+	result, err := api.service.CopyPreviousBudgets(r.Context(), member, chi.URLParam(r, "month"))
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, stdhttp.StatusOK, result)
 }
 
 func (api *API) transactions(w stdhttp.ResponseWriter, r *stdhttp.Request) {

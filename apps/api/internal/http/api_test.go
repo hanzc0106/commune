@@ -1,4 +1,4 @@
-﻿package http
+package http
 
 import (
 	"bytes"
@@ -130,6 +130,77 @@ func TestSettingsAPIChangeOwnPIN(t *testing.T) {
 		t.Fatalf("status = %d, want 200, body = %s", rec.Code, rec.Body.String())
 	}
 	loginViaAPI(t, handler, adminID, "654321")
+}
+
+func TestBudgetAPIRequiresSession(t *testing.T) {
+	handler := newInitializedAPI(t)
+	req := httptest.NewRequest("GET", "/budgets?month=2026-05", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestBudgetAPIAdminSetsBudget(t *testing.T) {
+	handler, cookie := newInitializedAPIWithCookie(t)
+	categoryID := firstCategoryID(t, handler, cookie, "expense")
+	req := httptest.NewRequest("PUT", "/budgets/2026-05/"+categoryID, bytes.NewReader([]byte(`{"amountCents":120000}`)))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBudgetAPIMemberCannotSetBudget(t *testing.T) {
+	handler, adminCookie := newInitializedAPIWithCookie(t)
+	member := createMemberViaAPI(t, handler, adminCookie, "Li", "member", "234567")
+	memberCookie := loginViaAPI(t, handler, member.ID, "234567")
+	categoryID := firstCategoryID(t, handler, adminCookie, "expense")
+	req := httptest.NewRequest("PUT", "/budgets/2026-05/"+categoryID, bytes.NewReader([]byte(`{"amountCents":120000}`)))
+	req.AddCookie(memberCookie)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBudgetAPICopiesPreviousBudgets(t *testing.T) {
+	handler, cookie := newInitializedAPIWithCookie(t)
+	categoryID := firstCategoryID(t, handler, cookie, "expense")
+	setReq := httptest.NewRequest("PUT", "/budgets/2026-04/"+categoryID, bytes.NewReader([]byte(`{"amountCents":120000}`)))
+	setReq.AddCookie(cookie)
+	setRec := httptest.NewRecorder()
+	handler.ServeHTTP(setRec, setReq)
+	if setRec.Code != http.StatusOK {
+		t.Fatalf("set status = %d, want 200, body = %s", setRec.Code, setRec.Body.String())
+	}
+
+	copyReq := httptest.NewRequest("POST", "/budgets/2026-05/copy-previous", nil)
+	copyReq.AddCookie(cookie)
+	copyRec := httptest.NewRecorder()
+	handler.ServeHTTP(copyRec, copyReq)
+	if copyRec.Code != http.StatusOK {
+		t.Fatalf("copy status = %d, want 200, body = %s", copyRec.Code, copyRec.Body.String())
+	}
+	var response struct {
+		CopiedCount int64 `json:"copiedCount"`
+	}
+	if err := json.NewDecoder(copyRec.Body).Decode(&response); err != nil {
+		t.Fatalf("Decode returned error: %v", err)
+	}
+	if response.CopiedCount != 1 {
+		t.Fatalf("copied count = %d, want 1", response.CopiedCount)
+	}
 }
 
 func newInitializedAPI(t *testing.T) http.Handler {
