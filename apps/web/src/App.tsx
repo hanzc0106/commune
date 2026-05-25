@@ -3,11 +3,13 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 
 import {
   changeOwnPIN,
+  copyPreviousBudgets,
   createCategory,
   createMember,
   createTransaction,
   disableCategory,
   disableMember,
+  getBudgets,
   getBootstrap,
   getMonthlyOverview,
   initializeApp,
@@ -18,7 +20,10 @@ import {
   login,
   logout,
   resetMemberPIN,
+  setBudget,
   updateCategory,
+  type BudgetItem,
+  type BudgetSummary,
   type Category,
   type CreateCategoryInput,
   type CreateMemberInput,
@@ -296,8 +301,11 @@ function AuthenticatedShell({
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [overview, setOverview] = useState<MonthlyOverview | null>(null);
+  const [budgetSummary, setBudgetSummary] = useState<BudgetSummary | null>(null);
   const [ledgerError, setLedgerError] = useState("");
+  const [budgetError, setBudgetError] = useState("");
   const [loadingLedger, setLoadingLedger] = useState(true);
+  const [loadingBudgets, setLoadingBudgets] = useState(true);
 
   async function refreshLedger(targetMonth = month) {
     setLedgerError("");
@@ -318,27 +326,45 @@ function AuthenticatedShell({
     }
   }
 
+  async function refreshBudgets(targetMonth = month) {
+    setBudgetError("");
+    setLoadingBudgets(true);
+    try {
+      const result = await getBudgets(targetMonth);
+      setBudgetSummary(result);
+    } catch (error) {
+      setBudgetError(error instanceof Error ? error.message : "加载预算失败");
+    } finally {
+      setLoadingBudgets(false);
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
     setLedgerError("");
+    setBudgetError("");
     setLoadingLedger(true);
-    Promise.all([listCategories(), listTransactions(month), getMonthlyOverview(month)])
-      .then(([categoryResult, transactionResult, overviewResult]) => {
+    setLoadingBudgets(true);
+    Promise.all([listCategories(), listTransactions(month), getMonthlyOverview(month), getBudgets(month)])
+      .then(([categoryResult, transactionResult, overviewResult, budgetResult]) => {
         if (cancelled) {
           return;
         }
         setCategories(categoryResult.categories);
         setTransactions(transactionResult.transactions);
         setOverview(overviewResult);
+        setBudgetSummary(budgetResult);
       })
       .catch((error: unknown) => {
         if (!cancelled) {
           setLedgerError(error instanceof Error ? error.message : "加载账本失败");
+          setBudgetError(error instanceof Error ? error.message : "加载预算失败");
         }
       })
       .finally(() => {
         if (!cancelled) {
           setLoadingLedger(false);
+          setLoadingBudgets(false);
         }
       });
     return () => {
@@ -394,7 +420,10 @@ function AuthenticatedShell({
               <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
                 <AddTransactionPanel
                   categories={categories}
-                  onCreated={() => refreshLedger(month)}
+                  onCreated={async () => {
+                    await refreshLedger(month);
+                    await refreshBudgets(month);
+                  }}
                 />
                 <MonthlyOverviewPanel
                   overview={overview}
@@ -415,7 +444,15 @@ function AuthenticatedShell({
             </Tabs.Content>
 
             <Tabs.Content value="budgets">
-              <Panel eyebrow="预算" title="预算功能待接入" body="账本流水已经接入，下一阶段会在这里配置分类预算和查看使用进度。" />
+              <BudgetsPanel
+                member={member}
+                month={month}
+                onMonthChange={setMonth}
+                summary={budgetSummary}
+                loading={loadingBudgets}
+                error={budgetError}
+                onChanged={() => refreshBudgets(month)}
+              />
             </Tabs.Content>
 
             <Tabs.Content value="settings">
@@ -684,6 +721,161 @@ function TransactionsPanel({
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function BudgetsPanel({
+  member,
+  month,
+  onMonthChange,
+  summary,
+  loading,
+  error,
+  onChanged
+}: {
+  member: Member;
+  month: string;
+  onMonthChange: (month: string) => void;
+  summary: BudgetSummary | null;
+  loading: boolean;
+  error: string;
+  onChanged: () => Promise<void>;
+}) {
+  const [amounts, setAmounts] = useState<Record<string, string>>({});
+  const [message, setMessage] = useState("");
+  const [submitError, setSubmitError] = useState("");
+
+  useEffect(() => {
+    if (!summary) {
+      return;
+    }
+    setAmounts((current) => {
+      const next = { ...current };
+      for (const item of summary.items) {
+        next[item.category.id] = item.budgetCents > 0 ? centsToYuanInput(item.budgetCents) : "";
+      }
+      return next;
+    });
+  }, [summary]);
+
+  async function handleSave(item: BudgetItem) {
+    setMessage("");
+    setSubmitError("");
+    const amountCents = yuanToCents(amounts[item.category.id] ?? "");
+    if (amountCents <= 0) {
+      setSubmitError("请输入有效预算金额");
+      return;
+    }
+    try {
+      await setBudget(month, item.category.id, amountCents);
+      await onChanged();
+      setMessage("预算已保存");
+    } catch (saveError) {
+      setSubmitError(saveError instanceof Error ? saveError.message : "保存预算失败");
+    }
+  }
+
+  async function handleCopyPrevious() {
+    setMessage("");
+    setSubmitError("");
+    try {
+      const result = await copyPreviousBudgets(month);
+      await onChanged();
+      setMessage(`已复制 ${result.copiedCount} 个预算`);
+    } catch (copyError) {
+      setSubmitError(copyError instanceof Error ? copyError.message : "复制预算失败");
+    }
+  }
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-medium text-slate-600">预算</p>
+            <h2 className="mt-1 text-2xl font-semibold">月度分类预算</h2>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input
+              type="month"
+              value={month}
+              onChange={(event) => onMonthChange(event.target.value)}
+              className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-700"
+            />
+            {member.role === "admin" ? (
+              <button
+                type="button"
+                onClick={handleCopyPrevious}
+                className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700"
+              >
+                复制上月预算
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        {loading ? <p className="mt-5 text-sm text-slate-500">正在加载...</p> : null}
+        {error ? <p className="mt-5 text-sm text-red-600">{error}</p> : null}
+        {submitError ? <p className="mt-5 text-sm text-red-600">{submitError}</p> : null}
+        {message ? <p className="mt-5 text-sm text-emerald-700">{message}</p> : null}
+
+        <div className="mt-5 space-y-3">
+          {summary?.items.map((item) => (
+            <div key={item.category.id} className="rounded-md border border-slate-200 p-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{item.category.name}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    已花 {formatMoney(item.spentCents)} · {budgetStatusLabel(item.status)}
+                  </p>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-[10rem_auto]">
+                  <input
+                    value={amounts[item.category.id] ?? ""}
+                    onChange={(event) => setAmounts((current) => ({ ...current, [item.category.id]: event.target.value }))}
+                    disabled={member.role !== "admin"}
+                    inputMode="decimal"
+                    placeholder="预算金额"
+                    className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-700 disabled:bg-slate-50"
+                  />
+                  {member.role === "admin" ? (
+                    <button
+                      type="button"
+                      onClick={() => handleSave(item)}
+                      className="rounded-md bg-emerald-700 px-3 py-2 text-sm font-medium text-white"
+                    >
+                      保存
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              <div className="mt-3 h-2 rounded-full bg-slate-100">
+                <div
+                  className={`h-2 rounded-full ${budgetStatusBarClass(item.status)}`}
+                  style={{ width: `${Math.min(item.usagePercent, 100)}%` }}
+                />
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-slate-500">
+                <span>预算 {item.budgetCents > 0 ? formatMoney(item.budgetCents) : "未设置"}</span>
+                <span>剩余 {item.budgetCents > 0 ? formatMoney(item.remainingCents) : "-"}</span>
+                <span>{item.budgetCents > 0 ? `${item.usagePercent}%` : "0%"}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+        <p className="text-sm font-medium text-slate-600">本月汇总</p>
+        <div className="mt-4 grid gap-2">
+          <Metric label="总预算" value={formatMoney(summary?.totalBudgetCents ?? 0)} />
+          <Metric label="总支出" value={formatMoney(summary?.totalSpentCents ?? 0)} />
+          <Metric label="剩余" value={formatMoney(summary?.totalRemainingCents ?? 0)} />
+          <Metric label="接近预算" value={`${summary?.nearCount ?? 0} 个分类`} />
+          <Metric label="已超支" value={`${summary?.overCount ?? 0} 个分类`} />
+        </div>
+      </section>
     </div>
   );
 }
@@ -1137,6 +1329,36 @@ function yuanToCents(value: string): number {
   return Number(yuan) * 100 + Number(cents.padEnd(2, "0"));
 }
 
+function centsToYuanInput(cents: number): string {
+  return (cents / 100).toFixed(2);
+}
+
 function formatMoney(cents: number): string {
   return `¥${(cents / 100).toFixed(2)}`;
+}
+
+function budgetStatusLabel(status: string): string {
+  if (status === "normal") {
+    return "正常";
+  }
+  if (status === "near") {
+    return "接近预算";
+  }
+  if (status === "over") {
+    return "已超支";
+  }
+  return "未设置";
+}
+
+function budgetStatusBarClass(status: string): string {
+  if (status === "over") {
+    return "bg-red-600";
+  }
+  if (status === "near") {
+    return "bg-amber-500";
+  }
+  if (status === "normal") {
+    return "bg-emerald-700";
+  }
+  return "bg-slate-200";
 }

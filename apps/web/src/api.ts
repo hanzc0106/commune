@@ -53,6 +53,27 @@ export type MonthlyOverview = {
   recent: Transaction[];
 };
 
+export type BudgetStatus = "unset" | "normal" | "near" | "over";
+
+export type BudgetItem = {
+  category: Category;
+  budgetCents: number;
+  spentCents: number;
+  remainingCents: number;
+  usagePercent: number;
+  status: BudgetStatus;
+};
+
+export type BudgetSummary = {
+  month: string;
+  totalBudgetCents: number;
+  totalSpentCents: number;
+  totalRemainingCents: number;
+  overCount: number;
+  nearCount: number;
+  items: BudgetItem[];
+};
+
 export type TransactionInput = {
   type: "expense" | "income";
   amountCents: number;
@@ -116,6 +137,24 @@ export async function logout(): Promise<{ ok: true }> {
 
 export async function listCategories(): Promise<{ categories: Category[] }> {
   return request<{ categories: Category[] }>("/api/categories");
+}
+
+export async function getBudgets(month: string): Promise<BudgetSummary> {
+  return request<BudgetSummary>(`/api/budgets?month=${encodeURIComponent(month)}`);
+}
+
+export async function setBudget(month: string, categoryId: string, amountCents: number): Promise<BudgetItem> {
+  return request<BudgetItem>(`/api/budgets/${encodeURIComponent(month)}/${encodeURIComponent(categoryId)}`, {
+    method: "PUT",
+    body: JSON.stringify({ amountCents })
+  });
+}
+
+export async function copyPreviousBudgets(month: string): Promise<{ copiedCount: number }> {
+  return request<{ copiedCount: number }>(`/api/budgets/${encodeURIComponent(month)}/copy-previous`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
 }
 
 export async function listMembers(): Promise<{ members: MemberAdmin[] }> {
