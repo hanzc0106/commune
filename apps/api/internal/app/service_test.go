@@ -1,4 +1,4 @@
-﻿package app
+package app
 
 import (
 	"context"
@@ -461,6 +461,125 @@ func TestSettingsCategoryManagement(t *testing.T) {
 	}
 }
 
+func TestBudgetSummaryIncludesUnsetExpenseCategories(t *testing.T) {
+	pool := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	service := newInitializedTestService(t, ctx, pool)
+
+	summary, err := service.ListBudgets(ctx, "2026-05")
+	if err != nil {
+		t.Fatalf("ListBudgets returned error: %v", err)
+	}
+	if summary.Month != "2026-05" {
+		t.Fatalf("month = %q, want 2026-05", summary.Month)
+	}
+	if len(summary.Items) != 8 {
+		t.Fatalf("item count = %d, want 8 expense categories", len(summary.Items))
+	}
+	for _, item := range summary.Items {
+		if item.Category.Type != "expense" {
+			t.Fatalf("category type = %q, want expense", item.Category.Type)
+		}
+		if item.Status != "unset" {
+			t.Fatalf("status = %q, want unset", item.Status)
+		}
+	}
+}
+
+func TestBudgetSetAndStatusCalculation(t *testing.T) {
+	pool := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	service := newInitializedTestService(t, ctx, pool)
+	admin := firstTestMember(t, ctx, pool)
+	categories, err := service.ListCategories(ctx)
+	if err != nil {
+		t.Fatalf("ListCategories returned error: %v", err)
+	}
+	expenseCategory := findTestCategory(t, categories, "expense")
+
+	if _, err := service.SetBudget(ctx, admin, "2026-05", expenseCategory.ID, SetBudgetInput{AmountCents: 10000}); err != nil {
+		t.Fatalf("SetBudget returned error: %v", err)
+	}
+	if _, err := service.CreateTransaction(ctx, admin, CreateTransactionInput{
+		Type: "expense", AmountCents: 8500, CategoryID: expenseCategory.ID, TransactionDate: "2026-05-10",
+	}); err != nil {
+		t.Fatalf("CreateTransaction returned error: %v", err)
+	}
+
+	summary, err := service.ListBudgets(ctx, "2026-05")
+	if err != nil {
+		t.Fatalf("ListBudgets returned error: %v", err)
+	}
+	item := findBudgetItem(t, summary.Items, expenseCategory.ID)
+	if item.BudgetCents != 10000 || item.SpentCents != 8500 || item.RemainingCents != 1500 {
+		t.Fatalf("budget item = %+v", item)
+	}
+	if item.UsagePercent != 85 {
+		t.Fatalf("usage percent = %d, want 85", item.UsagePercent)
+	}
+	if item.Status != "near" {
+		t.Fatalf("status = %q, want near", item.Status)
+	}
+}
+
+func TestBudgetRejectsIncomeCategoryAndMemberWrites(t *testing.T) {
+	pool := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	service := newInitializedTestService(t, ctx, pool)
+	admin := firstTestMember(t, ctx, pool)
+	member, err := service.CreateMember(ctx, admin, CreateMemberInput{Name: "Li", Role: "member", PIN: "234567"})
+	if err != nil {
+		t.Fatalf("CreateMember returned error: %v", err)
+	}
+	categories, err := service.ListCategories(ctx)
+	if err != nil {
+		t.Fatalf("ListCategories returned error: %v", err)
+	}
+	incomeCategory := findTestCategory(t, categories, "income")
+	expenseCategory := findTestCategory(t, categories, "expense")
+
+	if _, err := service.SetBudget(ctx, admin, "2026-05", incomeCategory.ID, SetBudgetInput{AmountCents: 10000}); err == nil {
+		t.Fatal("SetBudget accepted income category, want error")
+	}
+	if _, err := service.SetBudget(ctx, MemberDTO{ID: member.ID, Name: member.Name, Role: member.Role}, "2026-05", expenseCategory.ID, SetBudgetInput{AmountCents: 10000}); err == nil {
+		t.Fatal("SetBudget accepted member actor, want error")
+	}
+}
+
+func TestBudgetCopyPreviousDoesNotOverwriteCurrentMonth(t *testing.T) {
+	pool := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	service := newInitializedTestService(t, ctx, pool)
+	admin := firstTestMember(t, ctx, pool)
+	categories, err := service.ListCategories(ctx)
+	if err != nil {
+		t.Fatalf("ListCategories returned error: %v", err)
+	}
+	expenseCategory := findTestCategory(t, categories, "expense")
+
+	if _, err := service.SetBudget(ctx, admin, "2026-04", expenseCategory.ID, SetBudgetInput{AmountCents: 10000}); err != nil {
+		t.Fatalf("SetBudget previous returned error: %v", err)
+	}
+	if _, err := service.SetBudget(ctx, admin, "2026-05", expenseCategory.ID, SetBudgetInput{AmountCents: 5000}); err != nil {
+		t.Fatalf("SetBudget current returned error: %v", err)
+	}
+	copied, err := service.CopyPreviousBudgets(ctx, admin, "2026-05")
+	if err != nil {
+		t.Fatalf("CopyPreviousBudgets returned error: %v", err)
+	}
+	if copied.CopiedCount != 0 {
+		t.Fatalf("copied count = %d, want 0", copied.CopiedCount)
+	}
+	summary, err := service.ListBudgets(ctx, "2026-05")
+	if err != nil {
+		t.Fatalf("ListBudgets returned error: %v", err)
+	}
+	item := findBudgetItem(t, summary.Items, expenseCategory.ID)
+	if item.BudgetCents != 5000 {
+		t.Fatalf("budget cents = %d, want 5000", item.BudgetCents)
+	}
+}
+
 func newInitializedTestService(t *testing.T, ctx context.Context, pool *pgxpool.Pool) *Service {
 	t.Helper()
 	migrations, err := db.LoadMigrations("../../migrations")
@@ -523,4 +642,15 @@ func findTestCategory(t *testing.T, categories []CategoryDTO, categoryType strin
 	}
 	t.Fatalf("missing %s category", categoryType)
 	return CategoryDTO{}
+}
+
+func findBudgetItem(t *testing.T, items []BudgetStatusDTO, categoryID string) BudgetStatusDTO {
+	t.Helper()
+	for _, item := range items {
+		if item.Category.ID == categoryID {
+			return item
+		}
+	}
+	t.Fatalf("missing budget item for category %s", categoryID)
+	return BudgetStatusDTO{}
 }

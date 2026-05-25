@@ -112,6 +112,33 @@ type MonthlyOverviewDTO struct {
 	Recent         []TransactionDTO          `json:"recent"`
 }
 
+type BudgetStatusDTO struct {
+	Category       CategoryDTO `json:"category"`
+	BudgetCents    int64       `json:"budgetCents"`
+	SpentCents     int64       `json:"spentCents"`
+	RemainingCents int64       `json:"remainingCents"`
+	UsagePercent   int         `json:"usagePercent"`
+	Status         string      `json:"status"`
+}
+
+type BudgetSummaryDTO struct {
+	Month               string            `json:"month"`
+	TotalBudgetCents    int64             `json:"totalBudgetCents"`
+	TotalSpentCents     int64             `json:"totalSpentCents"`
+	TotalRemainingCents int64             `json:"totalRemainingCents"`
+	OverCount           int               `json:"overCount"`
+	NearCount           int               `json:"nearCount"`
+	Items               []BudgetStatusDTO `json:"items"`
+}
+
+type SetBudgetInput struct {
+	AmountCents int64 `json:"amountCents"`
+}
+
+type CopyPreviousBudgetsResult struct {
+	CopiedCount int64 `json:"copiedCount"`
+}
+
 type MemberAdminDTO struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
@@ -391,6 +418,117 @@ func (s *Service) MonthlyOverview(ctx context.Context, month string) (MonthlyOve
 		CategoryTotals: categoryTotals,
 		Recent:         transactions,
 	}, nil
+}
+
+func (s *Service) ListBudgets(ctx context.Context, month string) (BudgetSummaryDTO, error) {
+	monthRange, err := parseMonthRange(month)
+	if err != nil {
+		return BudgetSummaryDTO{}, err
+	}
+	categories, err := s.queries.ListActiveCategories(ctx)
+	if err != nil {
+		return BudgetSummaryDTO{}, err
+	}
+	budgets, err := s.queries.ListBudgetsByMonth(ctx, monthRange.month)
+	if err != nil {
+		return BudgetSummaryDTO{}, err
+	}
+	spending, err := s.queries.ListMonthlyBudgetSpending(ctx, queries.ListMonthlyBudgetSpendingParams{
+		StartDate: dateValue(monthRange.start),
+		EndDate:   dateValue(monthRange.end),
+	})
+	if err != nil {
+		return BudgetSummaryDTO{}, err
+	}
+
+	budgetByCategory := make(map[string]int64, len(budgets))
+	for _, budget := range budgets {
+		budgetByCategory[budget.CategoryID.String()] = budget.AmountCents
+	}
+	spentByCategory := make(map[string]int64, len(spending))
+	for _, row := range spending {
+		spentByCategory[row.CategoryID.String()] = row.SpentCents
+	}
+
+	summary := BudgetSummaryDTO{Month: monthRange.month}
+	for _, category := range categories {
+		if category.Type != "expense" {
+			continue
+		}
+		categoryID := category.ID.String()
+		item := budgetStatusDTO(categoryDTO(category), budgetByCategory[categoryID], spentByCategory[categoryID])
+		summary.Items = append(summary.Items, item)
+		summary.TotalBudgetCents += item.BudgetCents
+		summary.TotalSpentCents += item.SpentCents
+		summary.TotalRemainingCents += item.RemainingCents
+		if item.Status == "over" {
+			summary.OverCount++
+		}
+		if item.Status == "near" {
+			summary.NearCount++
+		}
+	}
+	return summary, nil
+}
+
+func (s *Service) SetBudget(ctx context.Context, actor MemberDTO, month string, categoryID string, input SetBudgetInput) (BudgetStatusDTO, error) {
+	if err := requireAdmin(actor); err != nil {
+		return BudgetStatusDTO{}, err
+	}
+	monthRange, err := parseMonthRange(month)
+	if err != nil {
+		return BudgetStatusDTO{}, err
+	}
+	if input.AmountCents <= 0 {
+		return BudgetStatusDTO{}, errors.New("budget amount must be greater than zero")
+	}
+	categoryUUID, err := uuidFromString(categoryID)
+	if err != nil {
+		return BudgetStatusDTO{}, errors.New("invalid category ID")
+	}
+	category, err := s.queries.GetCategoryByID(ctx, categoryUUID)
+	if err != nil {
+		return BudgetStatusDTO{}, err
+	}
+	if !category.Active || category.Type != "expense" {
+		return BudgetStatusDTO{}, errors.New("budget category must be an active expense category")
+	}
+	budget, err := s.queries.UpsertBudget(ctx, queries.UpsertBudgetParams{
+		Month:       monthRange.month,
+		CategoryID:  categoryUUID,
+		AmountCents: input.AmountCents,
+	})
+	if err != nil {
+		return BudgetStatusDTO{}, err
+	}
+	summary, err := s.ListBudgets(ctx, budget.Month)
+	if err != nil {
+		return BudgetStatusDTO{}, err
+	}
+	for _, item := range summary.Items {
+		if item.Category.ID == categoryID {
+			return item, nil
+		}
+	}
+	return budgetStatusDTO(categoryDTO(category), budget.AmountCents, 0), nil
+}
+
+func (s *Service) CopyPreviousBudgets(ctx context.Context, actor MemberDTO, month string) (CopyPreviousBudgetsResult, error) {
+	if err := requireAdmin(actor); err != nil {
+		return CopyPreviousBudgetsResult{}, err
+	}
+	monthRange, err := parseMonthRange(month)
+	if err != nil {
+		return CopyPreviousBudgetsResult{}, err
+	}
+	copiedCount, err := s.queries.CopyPreviousBudgets(ctx, queries.CopyPreviousBudgetsParams{
+		TargetMonth: monthRange.month,
+		SourceMonth: monthRange.start.AddDate(0, -1, 0).Format("2006-01"),
+	})
+	if err != nil {
+		return CopyPreviousBudgetsResult{}, err
+	}
+	return CopyPreviousBudgetsResult{CopiedCount: copiedCount}, nil
 }
 
 func (s *Service) ListMembers(ctx context.Context, actor MemberDTO) ([]MemberAdminDTO, error) {
@@ -726,6 +864,29 @@ func categoryDTO(category queries.Category) CategoryDTO {
 		SortOrder:     category.SortOrder,
 		SystemDefault: category.SystemDefault,
 	}
+}
+
+func budgetStatusDTO(category CategoryDTO, budgetCents int64, spentCents int64) BudgetStatusDTO {
+	item := BudgetStatusDTO{
+		Category:    category,
+		BudgetCents: budgetCents,
+		SpentCents:  spentCents,
+		Status:      "unset",
+	}
+	if budgetCents <= 0 {
+		return item
+	}
+	item.RemainingCents = budgetCents - spentCents
+	item.UsagePercent = int((spentCents * 100) / budgetCents)
+	switch {
+	case spentCents >= budgetCents:
+		item.Status = "over"
+	case spentCents*100 >= budgetCents*80:
+		item.Status = "near"
+	default:
+		item.Status = "normal"
+	}
+	return item
 }
 
 func requireAdmin(actor MemberDTO) error {
