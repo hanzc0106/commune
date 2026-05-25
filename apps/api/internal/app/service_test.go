@@ -1,4 +1,4 @@
-package app
+﻿package app
 
 import (
 	"context"
@@ -22,7 +22,7 @@ func TestInitializeCreatesSettingsAdminAndSession(t *testing.T) {
 		t.Fatalf("RunMigrations returned error: %v", err)
 	}
 
-	if _, err := pool.Exec(ctx, "TRUNCATE transactions, categories, sessions, members, app_settings RESTART IDENTITY CASCADE"); err != nil {
+	if _, err := pool.Exec(ctx, "TRUNCATE budgets, transactions, categories, sessions, members, app_settings RESTART IDENTITY CASCADE"); err != nil {
 		t.Fatalf("TRUNCATE returned error: %v", err)
 	}
 
@@ -64,7 +64,7 @@ func TestInitializeCreatesDefaultCategories(t *testing.T) {
 	if err := db.RunMigrations(ctx, pool, migrations); err != nil {
 		t.Fatalf("RunMigrations returned error: %v", err)
 	}
-	if _, err := pool.Exec(ctx, "TRUNCATE transactions, categories, sessions, members, app_settings RESTART IDENTITY CASCADE"); err != nil {
+	if _, err := pool.Exec(ctx, "TRUNCATE budgets, transactions, categories, sessions, members, app_settings RESTART IDENTITY CASCADE"); err != nil {
 		t.Fatalf("TRUNCATE returned error: %v", err)
 	}
 
@@ -130,7 +130,7 @@ func TestLoginCreatesSessionForCorrectPIN(t *testing.T) {
 	if err := db.RunMigrations(ctx, pool, migrations); err != nil {
 		t.Fatalf("RunMigrations returned error: %v", err)
 	}
-	if _, err := pool.Exec(ctx, "TRUNCATE transactions, categories, sessions, members, app_settings RESTART IDENTITY CASCADE"); err != nil {
+	if _, err := pool.Exec(ctx, "TRUNCATE budgets, transactions, categories, sessions, members, app_settings RESTART IDENTITY CASCADE"); err != nil {
 		t.Fatalf("TRUNCATE returned error: %v", err)
 	}
 
@@ -470,7 +470,7 @@ func newInitializedTestService(t *testing.T, ctx context.Context, pool *pgxpool.
 	if err := db.RunMigrations(ctx, pool, migrations); err != nil {
 		t.Fatalf("RunMigrations returned error: %v", err)
 	}
-	if _, err := pool.Exec(ctx, "TRUNCATE transactions, categories, sessions, members, app_settings RESTART IDENTITY CASCADE"); err != nil {
+	if _, err := pool.Exec(ctx, "TRUNCATE budgets, transactions, categories, sessions, members, app_settings RESTART IDENTITY CASCADE"); err != nil {
 		t.Fatalf("TRUNCATE returned error: %v", err)
 	}
 	service := NewService(pool)

@@ -1,4 +1,4 @@
-package http
+﻿package http
 
 import (
 	"bytes"
@@ -143,7 +143,7 @@ func newInitializedAPI(t *testing.T) http.Handler {
 	if err := db.RunMigrations(ctx, pool, migrations); err != nil {
 		t.Fatalf("RunMigrations returned error: %v", err)
 	}
-	if _, err := pool.Exec(ctx, "TRUNCATE transactions, categories, sessions, members, app_settings RESTART IDENTITY CASCADE"); err != nil {
+	if _, err := pool.Exec(ctx, "TRUNCATE budgets, transactions, categories, sessions, members, app_settings RESTART IDENTITY CASCADE"); err != nil {
 		t.Fatalf("TRUNCATE returned error: %v", err)
 	}
 	service := app.NewService(pool)
@@ -168,7 +168,7 @@ func newInitializedAPIWithCookie(t *testing.T) (http.Handler, *http.Cookie) {
 	if err := db.RunMigrations(ctx, pool, migrations); err != nil {
 		t.Fatalf("RunMigrations returned error: %v", err)
 	}
-	if _, err := pool.Exec(ctx, "TRUNCATE transactions, categories, sessions, members, app_settings RESTART IDENTITY CASCADE"); err != nil {
+	if _, err := pool.Exec(ctx, "TRUNCATE budgets, transactions, categories, sessions, members, app_settings RESTART IDENTITY CASCADE"); err != nil {
 		t.Fatalf("TRUNCATE returned error: %v", err)
 	}
 	service := app.NewService(pool)

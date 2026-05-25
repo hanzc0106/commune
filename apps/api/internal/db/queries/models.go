@@ -17,6 +17,15 @@ type AppSetting struct {
 	UpdatedAt       pgtype.Timestamptz
 }
 
+type Budget struct {
+	ID          pgtype.UUID
+	Month       string
+	CategoryID  pgtype.UUID
+	AmountCents int64
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
 type Category struct {
 	ID            pgtype.UUID
 	Name          string
